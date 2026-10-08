@@ -80,7 +80,8 @@
       <li><b>Fotos de modelos de coche:</b> Wikipedia y Wikimedia Commons (Wikimedia Foundation, EE. UU.). Solo reciben de nuestro servidor la marca, el modelo y el año que buscas; tu navegador no se conecta a ellas.</li>
       <li><b>Mapas:</b> OpenStreetMap Foundation (teselas del mapa) y, solo si su servidor falla, OpenStreetMap Francia. Tu navegador les pide las imágenes del mapa, por lo que reciben tu dirección IP y el dominio de GasoCheck.</li>
       <li><b>Tipografías y librerías:</b> Google Fonts, unpkg.com y jsdelivr.net (estos dos últimos sirven el lector de tickets, que se descarga solo si añades una foto). Reciben la dirección IP al descargarlas.</li>
-      <li><b>Cálculo de rutas:</b> al usar “ruta más barata”, tu navegador envía las coordenadas de origen y destino al servicio de rutas OSRM (Project OSRM) para calcular el trayecto. Solo se usa si pulsas “Buscar en la ruta”.</li>
+      <li><b>GPS y cálculo de rutas:</b> al usar la pestaña GPS, tu navegador envía las coordenadas de origen, destino y, si eliges una ruta con parada, de la gasolinera al servicio de rutas OSRM (Project OSRM) para calcular el trayecto. Mientras navegas, tu posición se usa solo en tu dispositivo y no se guarda en nuestros servidores (se envía a OSRM únicamente si te sales de la ruta y hay que recalcularla).</li>
+      <li><b>Búsqueda de direcciones:</b> lo que escribes en origen y destino de la pestaña GPS se envía a Photon (Komoot, Alemania), un buscador basado en OpenStreetMap, para sugerir direcciones.</li>
       <li><b>Notificaciones:</b> si las activas, el aviso viaja cifrado a través del servicio de notificaciones de tu navegador (Google, Apple, Mozilla o Microsoft), que no puede leer su contenido.</li>
     </ul>
     <p>Los precios oficiales se descargan del Ministerio desde nuestro servidor: tu navegador no se conecta al Ministerio.</p>

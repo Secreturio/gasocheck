@@ -683,6 +683,7 @@
       $$('.combustibles button').forEach((x) => x.setAttribute('aria-checked', String(x === b)));
       refrescar();
       if (estado.sel) abrirFicha(estado.sel, { sinMover: true });
+      window.GasoGPS?.alCambiarCombustible();
     });
   });
   $('#f24').addEventListener('change', (e) => { estado.solo24 = e.target.checked; refrescar(); });
@@ -873,6 +874,8 @@
     $('#vEstadisticas').hidden = p !== 'estadisticas';
     $('#vMiCoche').hidden = p !== 'micoche';
     $('#vRepostajes').hidden = p !== 'repostajes';
+    $('#vGps').hidden = p !== 'gps';
+    window.GasoGPS?.alCambiar(p);
     if (p === 'favoritas') pintarFavoritas();
     if (p === 'estadisticas') pintarEstadisticas();
     if (p === 'micoche') pintarMiCoche();
@@ -890,7 +893,7 @@
     } else if (antes) {
       setTimeout(() => mapa.invalidateSize(), 0); // el mapa vuelve a verse: recalcula su tamaño
     }
-    hoja(p === 'buscar' ? 'minimo' : 'alto'); // el mapa se abre con el panel mínimo (combustible y buscador)
+    hoja(p === 'buscar' ? 'minimo' : p === 'gps' ? 'medio' : 'alto'); // el mapa se abre con el panel mínimo (combustible y buscador)
   }
   $$('.pestanas [role="tab"]').forEach((t) => {
     t.addEventListener('click', () => cambiarPestana(t.dataset.p));
@@ -2702,7 +2705,7 @@
     if (!a) return;
     history.replaceState(null, '', location.pathname + location.hash);
     if (a === 'cerca') localizar();
-    else if (a === 'ruta') $('#bRuta')?.click();
+    else if (a === 'ruta') cambiarPestana('gps');
     else if (a === 'micoche') cambiarPestana('micoche');
     else if (a === 'repostajes') cambiarPestana('repostajes');
     else if (a === 'avisos') setTimeout(() => window.GasoAvisos?.abrir(), 800);

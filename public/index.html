@@ -46,6 +46,7 @@
 
     <nav class="pestanas" role="tablist" aria-label="Secciones">
       <button role="tab" id="tBuscar" title="Mapa" aria-controls="vBuscar" aria-selected="true" data-p="buscar"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6.5l6-2.5 6 2.5 6-2.5v13.5l-6 2.5-6-2.5-6 2.5z" class="relleno-suave"/><path d="M9 4v13.5M15 6.5V20"/></svg><span class="et">Mapa</span></button>
+      <button role="tab" id="tGps" title="GPS" aria-controls="vGps" aria-selected="false" data-p="gps"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5l7 18.5-7-4-7 4z" class="relleno-suave"/></svg><span class="et">GPS</span></button>
       <button role="tab" id="tFavoritas" title="Favoritos" aria-controls="vFavoritas" aria-selected="false" data-p="favoritas"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.3a4.3 4.3 0 0 1 7.5 2.5C19.5 15.4 12 20 12 20z"/></svg><span class="et">Favoritos</span> <span class="contador" id="nFav"></span></button>
       <button role="tab" id="tRepostajes" title="Mis repostajes" aria-controls="vRepostajes" aria-selected="false" data-p="repostajes"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="16" rx="2"/><path d="M8 3v4M16 3v4M4 10h16M8 14h3M8 17.5h6"/></svg><span class="et">Mis repostajes</span></button>
       <button role="tab" id="tMiCoche" title="Mi coche" aria-controls="vMiCoche" aria-selected="false" data-p="micoche"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 16.5v-4.5l2-5h12l2 5v4.5z"/><circle cx="7.5" cy="16.5" r="1.8"/><circle cx="16.5" cy="16.5" r="1.8"/><path d="M4 12h16"/></svg><span class="et">Mi coche</span></button>
@@ -127,10 +128,6 @@
             <label class="campo-marca">Marca
               <select id="fMarca"><option value="">Todas</option></select>
             </label>
-            <button id="bRuta" class="boton" type="button" aria-expanded="false" aria-controls="rutaCaja">
-              <svg aria-hidden="true" viewBox="0 0 24 24" class="ico-ruta"><circle cx="6" cy="18" r="2.2"/><circle cx="18" cy="6" r="2.2"/><path d="M8 18h7a3 3 0 0 0 0-6H9a3 3 0 0 1 0-6h7" fill="none"/></svg>
-              Gasolinera más barata en mi ruta
-            </button>
           </div>
 
           <div class="chips-filtro" role="group" aria-label="Filtros rápidos">
@@ -151,11 +148,12 @@
           </div>
         </div>
 
-        <div class="ruta-caja" id="rutaCaja" hidden></div>
         <div class="consejo" id="consejo" hidden></div>
         <div class="resumen sr" id="resumen" aria-live="polite"></div>
         <ol class="lista tarjetas" id="lista"></ol>
       </section>
+
+      <section class="vista gps" id="vGps" role="tabpanel" aria-labelledby="tGps" hidden></section>
 
       <section class="vista" id="vFavoritas" role="tabpanel" aria-labelledby="tFavoritas" hidden>
         <header class="fav-cab">
@@ -239,6 +237,7 @@
   <script src="editor-imagen.js"></script>
   <script src="cuenta.js"></script>
   <script src="ruta.js"></script>
+  <script src="gps.js"></script>
   <script src="ticket.js"></script>
   <script src="fotos.js"></script>
   <script src="avisos.js"></script>
