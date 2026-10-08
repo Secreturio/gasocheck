@@ -233,6 +233,7 @@
     guardarReciente(st.destino);
     res.innerHTML = '<p class="gps-cargando"><span class="gps-spin"></span>Calculando rutas…</p>';
     st.calc = null;
+    if ($('#gExtrasRes')) $('#gExtrasRes').innerHTML = '';
     pintarAcciones();
     limpiarMapa();
     try {
@@ -422,32 +423,36 @@
           .join('')}
       </div>
 
-      <details class="gps-opciones">
-        <summary>Opciones de la ruta</summary>
-        <div class="gps-opc-grid">
-          <label>Desvío máximo para repostar
-            <select id="gDesvio">${[1, 3, 5, 10].map((v) => `<option value="${v}"${v === st.opciones.desvio ? ' selected' : ''}>${v} km</option>`).join('')}</select>
-          </label>
-          <label>Litros a repostar
-            <input id="gLitros" inputmode="decimal" placeholder="${A().estado.ajustes.litros}" value="${esc(st.opciones.litros ?? '')}">
-          </label>
-          <label>Depósito ahora
-            <select id="gDeposito">${[['', 'No lo sé'], ['1', 'Lleno'], ['0.75', '3/4'], ['0.5', 'Medio'], ['0.25', '1/4'], ['0.1', 'En reserva']].map(([v, t]) => `<option value="${v}"${v === String(st.opciones.deposito ?? '') ? ' selected' : ''}>${t}</option>`).join('')}</select>
-          </label>
-          <label>Quiero llegar a las
-            <input id="gLlegada" type="time" value="${esc(st.opciones.llegada || '')}">
-          </label>
-          <label class="gps-evitar">Evitar
-            <select id="gEvitar">${[['', 'Nada'], ['toll', 'Peajes'], ['motorway', 'Autopistas y autovías'], ['ferry', 'Ferris']].map(([v, t]) => `<option value="${v}"${v === st.opciones.evitar ? ' selected' : ''}>${t}</option>`).join('')}</select>
-          </label>
-          <label class="interruptor"><input type="checkbox" id="gLetra"${st.opciones.letraGrande ? ' checked' : ''}><i></i>Letra grande al navegar</label>
-          <label class="interruptor"><input type="checkbox" id="gNoche"${st.opciones.nocheAuto !== false ? ' checked' : ''}><i></i>Mapa oscuro de noche (automático)</label>
-        </div>
-        <p class="texto-ayuda">El gasto se calcula con tu combustible (el que eliges arriba) y el consumo de tu coche: <b id="gConsumo"></b> l/100 km. Cámbialo en <a href="#" id="gMiCoche">Mi coche</a>.</p>
-      </details>
 
       <div id="gRes" aria-live="polite"></div>
-      <div id="gRecientes"></div>`;
+      <div id="gRecientes"></div>
+
+      <div class="gps-extras" id="gExtras">
+        <details class="gps-opciones">
+          <summary>Opciones de la ruta</summary>
+          <div class="gps-opc-grid">
+            <label>Desvío máximo para repostar
+              <select id="gDesvio">${[1, 3, 5, 10].map((v) => `<option value="${v}"${v === st.opciones.desvio ? ' selected' : ''}>${v} km</option>`).join('')}</select>
+            </label>
+            <label>Litros a repostar
+              <input id="gLitros" inputmode="decimal" placeholder="${A().estado.ajustes.litros}" value="${esc(st.opciones.litros ?? '')}">
+            </label>
+            <label>Depósito ahora
+              <select id="gDeposito">${[['', 'No lo sé'], ['1', 'Lleno'], ['0.75', '3/4'], ['0.5', 'Medio'], ['0.25', '1/4'], ['0.1', 'En reserva']].map(([v, t]) => `<option value="${v}"${v === String(st.opciones.deposito ?? '') ? ' selected' : ''}>${t}</option>`).join('')}</select>
+            </label>
+            <label>Quiero llegar a las
+              <input id="gLlegada" type="time" value="${esc(st.opciones.llegada || '')}">
+            </label>
+            <label class="gps-evitar">Evitar
+              <select id="gEvitar">${[['', 'Nada'], ['toll', 'Peajes'], ['motorway', 'Autopistas y autovías'], ['ferry', 'Ferris']].map(([v, t]) => `<option value="${v}"${v === st.opciones.evitar ? ' selected' : ''}>${t}</option>`).join('')}</select>
+            </label>
+            <label class="interruptor"><input type="checkbox" id="gLetra"${st.opciones.letraGrande ? ' checked' : ''}><i></i>Letra grande al navegar</label>
+            <label class="interruptor"><input type="checkbox" id="gNoche"${st.opciones.nocheAuto !== false ? ' checked' : ''}><i></i>Mapa oscuro de noche (automático)</label>
+          </div>
+          <p class="texto-ayuda">El gasto se calcula con tu combustible (el que eliges arriba) y el consumo de tu coche: <b id="gConsumo"></b> l/100 km. Cámbialo en <a href="#" id="gMiCoche">Mi coche</a>.</p>
+        </details>
+        <div id="gExtrasRes"></div>
+      </div>`;
   }
 
   function montar() {
@@ -1121,15 +1126,15 @@
     const r = st.calc[st.modo];
     const listo = r && r !== undefined;
     const sel = r || st.calc.normal;
-    const abiertoElec = $('.gps-electrico', res)?.open;
+    const extras = $('#gExtrasRes');
+    const abiertoElec = $('.gps-electrico', extras)?.open;
+    extras.innerHTML = `${bloqueElectrico(sel)}${bloqueVigilar()}`;
     res.innerHTML = `
       ${bloqueDeposito(sel)}
       ${bloqueSalida(sel)}
       <div class="gps-tarjetas">${Object.keys(MODOS).map(tarjeta).join('')}</div>
-      ${bloqueElectrico(sel)}
-      ${bloqueVigilar()}
       <p class="texto-ayuda gps-nota">Gasto estimado con ${String(consumoBase()).replace('.', ',')} l/100 km y ${esc(app.NOMBRES[app.estado.combustible])}${st.calc.precioRef ? ` a ${app.euros(st.calc.precioRef)} €/l (media del camino)` : ''}${app.tieneDescuentos?.() ? ', con tus descuentos' : ''}. Los tiempos no incluyen el tráfico en tiempo real.</p>`;
-    if (abiertoElec) $('.gps-electrico', res)?.setAttribute('open', '');
+    if (abiertoElec) $('.gps-electrico', extras)?.setAttribute('open', '');
     $$('.gps-tarjeta', res).forEach((b) => b.addEventListener('click', () => elegirModo(b.dataset.modo)));
     $('#gParadaDeposito')?.addEventListener('click', (ev) => {
       const b = ev.currentTarget;
@@ -1138,7 +1143,7 @@
       calcular();
     });
     $('#gVigilar')?.addEventListener('click', vigilarRuta);
-    $$('[data-quitar-ruta]', res).forEach((b) => b.addEventListener('click', () => quitarRutaVigilada(b.dataset.quitarRuta)));
+    $$('[data-quitar-ruta]', extras).forEach((b) => b.addEventListener('click', () => quitarRutaVigilada(b.dataset.quitarRuta)));
     $('#gElecPrecio')?.addEventListener('change', (ev) => {
       guardar('gm.gps.kwh', parseFloat(String(ev.target.value).replace(',', '.')) || 0.2);
       pintarResultados({ encuadrar: false });

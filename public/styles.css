@@ -2612,3 +2612,8 @@ body.gps-grande .gps-banner .gps-luego span { font-size: 16px; }
   .gps-nav:has(#gnDirecto:not([hidden])) .gps-centrar,
   .gps-nav:has(#gnDirecto:not([hidden])) .gps-inc-chip { bottom: calc(190px + env(safe-area-inset-bottom, 0px)); }
 }
+
+/* Bloque final del GPS: opciones, eléctrico/híbrido y aviso de ruta, separado del resto */
+.gps-extras { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; padding-top: 18px; border-top: 1px solid var(--linea-fuerte); }
+#gExtrasRes { display: flex; flex-direction: column; gap: 10px; }
+#gExtrasRes:empty { display: none; }
