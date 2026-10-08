@@ -1,0 +1,20 @@
+{
+  "name": "gasocheck",
+  "version": "1.8.0",
+  "private": true,
+  "description": "GasoCheck: gasolineras de España con precios oficiales, precios declarados y calidad del combustible",
+  "type": "module",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js",
+    "demo": "node server/index.js --demo",
+    "build": "node scripts/comprobar.mjs"
+  },
+  "dependencies": {
+    "@netlify/blobs": "^11.1.0"
+  },
+  "engines": {
+    "node": ">=22.12"
+  }
+}

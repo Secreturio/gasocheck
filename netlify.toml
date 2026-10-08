@@ -1,0 +1,60 @@
+# GasoCheck en Netlify
+# - La web (public/) se sirve como estática.
+# - La API (/api/*) es una función: netlify/functions/api.mjs
+# - Los precios se actualizan solos cada 30 minutos: netlify/functions/actualizar.mjs
+# - Los datos (cuentas, valoraciones, historial, fotos) se guardan en Netlify Blobs. No hay que configurar nada.
+
+[build]
+  publish = "public"
+  command = "npm run build"
+  functions = "netlify/functions"
+
+[build.environment]
+  NODE_VERSION = "22"
+
+[functions]
+  node_bundler = "esbuild"
+
+# ---------- Cabeceras de seguridad y caché ----------
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin"
+    X-Frame-Options = "DENY"
+
+# El código se comprueba siempre: así una versión nueva se ve al recargar
+[[headers]]
+  for = "/*.html"
+  [headers.values]
+    Cache-Control = "no-cache"
+[[headers]]
+  for = "/*.js"
+  [headers.values]
+    Cache-Control = "no-cache"
+[[headers]]
+  for = "/*.css"
+  [headers.values]
+    Cache-Control = "no-cache"
+
+# El service worker nunca se guarda en caché (si no, las versiones nuevas tardan en llegar)
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"
+    Service-Worker-Allowed = "/"
+
+[[headers]]
+  for = "/manifest.webmanifest"
+  [headers.values]
+    Content-Type = "application/manifest+json"
+    Cache-Control = "no-cache"
+
+[[headers]]
+  for = "/img/*"
+  [headers.values]
+    Cache-Control = "public, max-age=604800"
+[[headers]]
+  for = "/vendor/*"
+  [headers.values]
+    Cache-Control = "public, max-age=604800"

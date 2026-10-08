@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Moderación · GasoCheck</title>
+  <link rel="icon" href="img/favicon-32.png" type="image/png" sizes="32x32">
+  <link rel="icon" href="img/favicon-48.png" type="image/png" sizes="48x48">
+  <link rel="apple-touch-icon" href="img/apple-touch-icon.png">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    body { overflow: auto; }
+    .admin { max-width: 900px; margin: 0 auto; padding: 24px 16px 48px; display: flex; flex-direction: column; gap: 18px; }
+    .marca-prov { display: flex; align-items: center; gap: 12px; }
+    .marca-prov img { flex: none; height: 48px; width: auto; }
+    .admin h1 { margin: 0; font: 700 32px/1 var(--f-display); text-transform: uppercase; }
+    .barra-admin { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; }
+    .barra-admin label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--texto-suave); }
+    .barra-admin input, .barra-admin select, .tarjeta input { height: 40px; border: 1px solid var(--linea); border-radius: 8px; background: var(--superficie); padding: 0 10px; color: var(--texto); }
+    .tarjeta { background: var(--superficie); border: 1px solid var(--linea); border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 6px; }
+    .tarjeta .cab { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; font-size: 13px; color: var(--texto-suave); }
+    .tarjeta p { margin: 0; overflow-wrap: anywhere; }
+    .tarjeta .acciones .boton { min-height: 36px; padding: 0 12px; }
+    .estado-oculto { color: var(--caro); font-weight: 600; }
+    .pestanas-admin { display: flex; gap: 6px; }
+    .pestanas-admin button { border: 1px solid var(--linea); background: var(--superficie); border-radius: 999px; padding: 8px 14px; cursor: pointer; font-weight: 600; }
+    .pestanas-admin button[aria-selected="true"] { background: var(--acento); color: var(--acento-texto); border-color: var(--acento); }
+    .datos-prov { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; font-size: 14px; margin: 4px 0; }
+    .datos-prov dt { color: var(--texto-suave); } .datos-prov dd { margin: 0; }
+    .ojo { color: var(--caro); font-weight: 600; }
+    .lista-admin { display: flex; flex-direction: column; gap: 10px; }
+  </style>
+</head>
+<body>
+  <main class="admin">
+    <div class="marca-prov"><img src="img/logo.png" alt="GasoCheck" width="40" height="48"><h1>Moderación</h1></div>
+    <form class="barra-admin" id="fAdmin">
+      <label for="token">Clave de moderación (ADMIN_TOKEN)<input id="token" type="password" autocomplete="current-password" required></label>
+      <button class="boton primario" type="submit">Entrar</button>
+    </form>
+    <div class="pestanas-admin" role="tablist" hidden id="pestanas">
+      <button role="tab" aria-selected="true" data-s="reclamaciones">Reclamaciones de gasolineras</button>
+      <button role="tab" aria-selected="false" data-s="valoraciones">Valoraciones denunciadas</button>
+      <button role="tab" aria-selected="false" data-s="cuentas">Gasolineras y empresas · Planes</button>
+    </div>
+    <div class="barra-admin" id="filtros" hidden></div>
+    <p class="error" id="error" hidden></p>
+    <div class="lista-admin" id="lista"></div>
+  </main>
+  <script src="config.js"></script>
+  <script src="ojo.js"></script>
+  <script>
+    (() => {
+      const API = (window.GASOCHECK_API || '').replace(/\/$/, '');
+      const $ = (s, el = document) => el.querySelector(s);
+      const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+      let token = '';
+      let seccion = 'reclamaciones';
+      const peticion = async (ruta, opts = {}) => {
+        const r = await fetch(API + ruta, { ...opts, headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token } });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(d.error || 'Error ' + r.status);
+        return d;
+      };
+      const mostrarError = (m) => { $('#error').textContent = m; $('#error').hidden = !m; };
+
+      function pintarFiltros() {
+        if (seccion === 'cuentas') { $('#filtros').hidden = true; $('#filtros').innerHTML = '<select id="filtro" hidden><option value="x"></option></select>'; return; }
+        $('#filtros').hidden = false;
+        $('#filtros').innerHTML = seccion === 'reclamaciones'
+          ? `<label for="filtro">Mostrar<select id="filtro"><option value="pendiente">Pendientes</option><option value="aprobada">Aprobadas</option><option value="rechazada">Rechazadas</option><option value="revocada">Revocadas</option><option value="todas">Todas</option></select></label>`
+          : `<label for="filtro">Mostrar<select id="filtro"><option value="denunciados">Denunciadas sin revisar</option><option value="ocultos">Ocultas</option><option value="todos">Todas</option></select></label>`;
+        $('#filtro').addEventListener('change', cargar);
+      }
+
+      async function cargar() {
+        mostrarError('');
+        try {
+          if (seccion === 'cuentas') {
+            const { cuentas } = await peticion('/api/admin/cuentas');
+            const hoy = new Date().toISOString().slice(0, 10);
+            $('#lista').innerHTML = cuentas.length ? cuentas.map((c) => `<article class="tarjeta" data-id="${esc(c.id)}" data-tipo="cta">
+                <div class="cab"><b>${esc(c.proveedor?.empresa || c.alias)}</b><span>${c.rol === 'empresa' ? 'Empresa (flota)' : 'Gasolinera'} · alta ${new Date(c.creado).toLocaleDateString('es-ES')}</span></div>
+                <dl class="datos-prov"><dt>Nombre público</dt><dd>${esc(c.alias)}</dd><dt>CIF/NIF</dt><dd>${esc(c.proveedor?.cif)}</dd><dt>Teléfono</dt><dd>${esc(c.proveedor?.telefono)}</dd>
+                  <dt>Correo</dt><dd>${esc(c.email)} ${c.verificado ? '✓' : '<span class="ojo">sin confirmar</span>'}</dd>
+                  <dt>Plan</dt><dd>${c.plan?.gratis ? 'Todo gratis (los planes de pago están desactivados)' : c.plan?.pro ? `<b>Pro</b>${c.plan.hasta ? ' hasta ' + esc(c.plan.hasta) : ' (sin caducidad)'}` : c.plan?.nombre === 'pro' ? 'Pro caducado' : 'Gratuito'}</dd></dl>
+                <div class="barra-admin" ${c.plan?.gratis ? 'hidden' : ''}>
+                  <label>Plan<select data-plan><option value="gratis" ${c.plan?.pro ? '' : 'selected'}>Gratuito</option><option value="pro" ${c.plan?.pro ? 'selected' : ''}>Pro</option></select></label>
+                  <label>Pro hasta (vacío = sin fin)<input type="date" data-hasta min="${hoy}" value="${esc(c.plan?.hasta || '')}"></label>
+                  <button class="boton primario" data-a="plan">Guardar plan</button>
+                </div></article>`).join('') : '<p class="vacio">Aún no hay cuentas de gasolinera ni de empresa.</p>';
+            return;
+          }
+          if (seccion === 'reclamaciones') {
+            const { reclamaciones } = await peticion('/api/admin/reclamaciones?estado=' + $('#filtro').value);
+            $('#lista').innerHTML = reclamaciones.length ? reclamaciones.map((r) => {
+              const g = r.gasolinera || {}, c = r.cuenta;
+              return `<article class="tarjeta" data-id="${esc(r.id)}" data-tipo="rec">
+                <div class="cab"><b>${esc(g.rotulo || r.estacion)} · ${esc([g.direccion, g.localidad, g.provincia].filter(Boolean).join(', '))}</b><span>${new Date(r.creada).toLocaleString('es-ES')} · ${esc(r.estado)}</span></div>
+                ${c ? `<dl class="datos-prov">
+                  <dt>Empresa</dt><dd>${esc(c.proveedor?.empresa)}</dd>
+                  <dt>CIF/NIF</dt><dd>${esc(c.proveedor?.cif)}</dd>
+                  <dt>Teléfono</dt><dd>${esc(c.proveedor?.telefono)}</dd>
+                  <dt>Correo</dt><dd>${esc(c.email)} ${c.verificado ? '✓ confirmado' : '<span class="ojo">sin confirmar</span>'}</dd>
+                </dl>` : '<p class="ojo">La cuenta ya no existe.</p>'}
+                <p><b>Cómo verificarlo:</b> ${r.mensaje ? esc(r.mensaje) : '<i>No indica nada</i>'}</p>
+                ${r.dueno ? '<p class="ojo">Esta gasolinera ya tiene otra cuenta aprobada.</p>' : ''}
+                ${r.nota ? `<p><b>Nota:</b> ${esc(r.nota)}</p>` : ''}
+                <p class="texto-ayuda">Comprueba antes de aprobar: llama al teléfono público de la gasolinera, o pide un documento que acredite la titularidad.</p>
+                <label class="sr" for="nota-${esc(r.id)}">Nota</label><input id="nota-${esc(r.id)}" placeholder="Nota interna o motivo (se muestra a la gasolinera)" maxlength="300">
+                <div class="acciones">
+                  ${r.estado !== 'aprobada' ? '<button class="boton primario" data-a="aprobar">Aprobar</button>' : ''}
+                  ${r.estado === 'pendiente' ? '<button class="boton" data-a="rechazar">Rechazar</button>' : ''}
+                  ${r.estado === 'aprobada' ? '<button class="boton" data-a="revocar">Revocar</button>' : ''}
+                  <a class="boton" href="./#e${esc(r.estacion)}" target="_blank" rel="noopener">Ver gasolinera</a>
+                </div></article>`;
+            }).join('') : '<p class="vacio">Nada en esta lista.</p>';
+          } else {
+            const { reportes } = await peticion('/api/admin/reportes?filtro=' + $('#filtro').value);
+            $('#lista').innerHTML = reportes.length ? reportes.map((r) => `<article class="tarjeta" data-id="${esc(r.id)}" data-tipo="rep">
+                <div class="cab"><span>${'★'.repeat(r.puntuacion)}${'☆'.repeat(5 - r.puntuacion)} · ${r.autor ? esc(r.autor) : 'Anónimo'} · gasolinera ${esc(r.estacion)} · ${new Date(r.fecha).toLocaleString('es-ES')}</span>
+                <span>${r.denuncias} denuncias${r.oculto ? ' · <span class="estado-oculto">oculta</span>' : ''}${r.moderado === 'aprobado' ? ' · aprobada' : ''}</span></div>
+                ${r.problemas.length ? `<p><b>Problemas:</b> ${esc(r.problemas.join(', '))}</p>` : ''}
+                <p>${r.comentario ? esc(r.comentario) : '<i>Sin comentario</i>'}</p>
+                ${r.respuesta ? `<p><b>Respuesta de ${esc(r.respuesta.empresa)}:</b> ${esc(r.respuesta.texto)}</p>` : ''}
+                <div class="acciones">
+                  <button class="boton" data-a="aprobar">Aprobar</button>
+                  <button class="boton" data-a="ocultar">Ocultar</button>
+                  <button class="boton" data-a="borrar">Borrar</button>
+                  <a class="boton" href="./#e${esc(r.estacion)}" target="_blank" rel="noopener">Ver gasolinera</a>
+                </div></article>`).join('') : '<p class="vacio">Nada pendiente.</p>';
+          }
+        } catch (e) {
+          mostrarError(e.message);
+        }
+      }
+
+      $('#fAdmin').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        token = $('#token').value;
+        $('#pestanas').hidden = false;
+        pintarFiltros();
+        cargar();
+      });
+      $('#pestanas').addEventListener('click', (e) => {
+        const b = e.target.closest('[data-s]');
+        if (!b) return;
+        seccion = b.dataset.s;
+        document.querySelectorAll('#pestanas button').forEach((x) => x.setAttribute('aria-selected', String(x === b)));
+        pintarFiltros();
+        cargar();
+      });
+      $('#lista').addEventListener('click', async (e) => {
+        const b = e.target.closest('button[data-a]');
+        if (!b) return;
+        const art = b.closest('[data-id]');
+        const acc = b.dataset.a;
+        if ((acc === 'borrar' || acc === 'revocar') && b.dataset.ok !== '1') { b.dataset.ok = '1'; b.textContent = 'Confirmar'; return; }
+        try {
+          if (art.dataset.tipo === 'cta') {
+            await peticion('/api/admin/cuentas/' + encodeURIComponent(art.dataset.id) + '/plan', { method: 'POST', body: JSON.stringify({ plan: art.querySelector('[data-plan]').value, hasta: art.querySelector('[data-hasta]').value || null }) });
+          } else if (art.dataset.tipo === 'rec') {
+            await peticion('/api/admin/reclamaciones/' + encodeURIComponent(art.dataset.id), { method: 'POST', body: JSON.stringify({ accion: acc, nota: art.querySelector('input')?.value || '' }) });
+          } else {
+            await peticion('/api/admin/reportes/' + encodeURIComponent(art.dataset.id), { method: 'POST', body: JSON.stringify({ accion: acc }) });
+          }
+          cargar();
+        } catch (err) {
+          mostrarError(err.message);
+        }
+      });
+    })();
+  </script>
+</body>
+</html>
