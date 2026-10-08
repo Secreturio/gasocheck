@@ -118,7 +118,9 @@
   async function osrm(puntos, { alternativas = false, excluir = '' } = {}) {
     const coords = puntos.map((p) => `${(+p.lng).toFixed(6)},${(+p.lat).toFixed(6)}`).join(';');
     const base = `${SERVIDOR}/route/v1/driving/${coords}?overview=full&geometries=geojson&steps=true${alternativas && puntos.length === 2 ? '&alternatives=3' : ''}${excluir ? '&exclude=' + excluir : ''}`;
-    const url = base + '&annotations=distance,duration,maxspeed';
+    // Límites de velocidad: solo si el servidor los admite (el público de OSRM no siempre)
+    const conLimites = leer('gm.gps.limites', true) !== false;
+    const url = base + (conLimites ? '&annotations=distance,duration,maxspeed' : '&annotations=distance,duration');
     if (cacheRutas.has(url)) return cacheRutas.get(url);
     const p = (async () => {
       const pedir = async (u) => {
@@ -126,8 +128,11 @@
         return r.json().catch(() => ({}));
       };
       let d = await pedir(url);
-      // Si el servidor no da límites de velocidad, se pide sin ellos
-      if (d.code !== 'Ok' && /annotation|maxspeed/i.test(d.message || '')) d = await pedir(base + '&annotations=distance,duration');
+      // Si el servidor no entiende «maxspeed», se repite sin límites y se recuerda para la próxima vez
+      if (conLimites && d.code !== 'Ok' && (d.code === 'InvalidQuery' || /malformed|annotation|maxspeed/i.test(d.message || ''))) {
+        guardar('gm.gps.limites', false);
+        d = await pedir(base + '&annotations=distance,duration');
+      }
       if (d.code !== 'Ok' || !d.routes?.length) throw new Error(d.code === 'InvalidValue' && excluir ? 'el servidor de rutas no permite esa opción de «Evitar». Prueba con otra.' : d.message || 'No hay ruta por carretera entre esos puntos.');
       return d.routes.map((x) => prepararRuta(x, { excluir }));
     })();
