@@ -177,6 +177,8 @@
     guardarReciente(st.destino);
     res.innerHTML = '<p class="gps-cargando"><span class="gps-spin"></span>Calculando rutas…</p>';
     st.calc = null;
+    pintarAcciones();
+    limpiarMapa();
     try {
       const evitar = st.opciones.peajes ? 'toll' : '';
       const rapidas = await osrm([st.origen, st.destino], { alternativas: true, excluir: evitar });
@@ -195,7 +197,8 @@
       const precioRef = paradasEn(normal).media || null;
       // Eficiente: la de menos combustible sin tardar más de un 35 % que la rápida
       const eficiente = candidatas.filter((r) => r.min <= normal.min * 1.35).reduce((a, b) => (b.litros < a.litros ? b : a), normal);
-      st.calc = { normal, eficiente, barata: undefined, combinada: undefined, precioRef, alternativas: candidatas };
+      st.calc = { normal, eficiente, barata: undefined, combinada: undefined, precioRef, alternativas: candidatas, cercanas: paradasEn(normal).lista };
+      cargarIncidentes(normal.linea);
       pintarResultados();
       // Las dos con parada (necesitan más rutas)
       const infoN = paradasEn(normal);
@@ -241,6 +244,20 @@
     L.polyline(sel.linea, { color: acento, weight: 6, opacity: 1 }).addTo(g);
     L.marker([st.origen.lat, st.origen.lng], { icon: pin('origen'), interactive: false }).addTo(g);
     L.marker([st.destino.lat, st.destino.lng], { icon: pin('destino', '<svg viewBox="0 0 24 24"><path d="M6 21V4M6 4h11l-2 4 2 4H6"/></svg>') }).bindTooltip(esc(st.destino.nombre)).addTo(g);
+    // Solo las gasolineras alrededor de la ruta normal (el resto del mapa queda limpio)
+    const cercanas = st.calc.cercanas || [];
+    if (cercanas.length) {
+      const orden = cercanas.map((p) => p.precio).sort((a, b) => a - b);
+      const corte = (q) => orden[Math.min(orden.length - 1, Math.floor(q * orden.length))];
+      const c1 = corte(0.33), c2 = corte(0.66);
+      for (const p of cercanas) {
+        if (sel.parada && p.e.id === sel.parada.e.id) continue;
+        const t = p.precio <= c1 ? 't-barato' : p.precio >= c2 && orden.length > 2 ? 't-caro' : 't-medio';
+        L.marker([p.e.lat, p.e.lng], { icon: L.divIcon({ className: '', html: `<div class="gps-est ${t}">${app.euros(p.precio)}</div>`, iconSize: [0, 0] }), title: `${p.e.rotulo} · ${p.e.localidad}` })
+          .on('click', () => app.abrirFicha(p.e.id, { sinMover: true }))
+          .addTo(g);
+      }
+    }
     if (sel.parada) {
       const p = sel.parada;
       L.marker([p.e.lat, p.e.lng], { icon: L.divIcon({ className: '', html: `<div class="gps-pin parada"><b>${app.euros(p.precio)}</b></div>`, iconSize: [64, 30], iconAnchor: [32, 30] }) })
@@ -277,6 +294,12 @@
           </div>
         </div>
         <button type="button" class="gps-invertir" id="gInvertir" title="Intercambiar origen y destino" aria-label="Intercambiar origen y destino"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4v16M8 4L4.5 7.5M8 4l3.5 3.5M16 20V4M16 20l-3.5-3.5M16 20l3.5-3.5"/></svg></button>
+      </div>
+
+      <div class="gps-acciones" id="gAcciones">
+        <button type="button" class="boton primario gps-iniciar" id="gIniciar" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l7 19-7-4-7 4z"/></svg>Iniciar</button>
+        <a class="boton gps-google" id="gGoogle" aria-disabled="true" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg>Google Maps</a>
+        <button type="button" class="boton gps-simular" id="gSimular" disabled title="Ver el recorrido sin moverte">Simular</button>
       </div>
 
       <div class="gps-modos" role="radiogroup" aria-label="Tipo de ruta">
@@ -319,6 +342,11 @@
       else calcular();
     });
     $('#gYo').addEventListener('click', () => usarMiUbicacion(true));
+    $('#gIniciar').addEventListener('click', () => iniciarNavegacion(false));
+    $('#gSimular').addEventListener('click', () => iniciarNavegacion(true));
+    $('#gGoogle').addEventListener('click', (ev) => {
+      if ($('#gGoogle').getAttribute('aria-disabled') === 'true') ev.preventDefault();
+    });
     $('#gInvertir').addEventListener('click', () => {
       if (!st.origen && !st.destino) return;
       [st.origen, st.destino] = [st.destino, st.origen];
@@ -349,6 +377,7 @@
   function pintarCampos() {
     $('#gOrigen').value = st.origen ? st.origen.nombre : '';
     $('#gDestino').value = st.destino ? st.destino.nombre : '';
+    pintarAcciones();
   }
 
   function elegirModo(m) {
@@ -356,6 +385,7 @@
     guardar('gm.gps.modo', m);
     $$('#vGps .gps-modos [data-modo]').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.modo === m)));
     if (st.calc) pintarResultados({ encuadrar: false });
+    else pintarAcciones();
   }
 
   function usarMiUbicacion(forzar = false) {
@@ -611,6 +641,23 @@
     return u.href;
   }
 
+  // Botones de debajo de los destinos: activos cuando la ruta elegida está calculada
+  function pintarAcciones() {
+    const r = st.calc?.[st.modo];
+    const listo = Boolean(r);
+    $('#gIniciar').disabled = !listo;
+    $('#gSimular').disabled = !listo;
+    const g = $('#gGoogle');
+    // Google Maps se puede abrir en cuanto hay origen y destino
+    if (st.origen && st.destino) {
+      g.href = enlaceGoogle(r || {});
+      g.setAttribute('aria-disabled', 'false');
+    } else {
+      g.removeAttribute('href');
+      g.setAttribute('aria-disabled', 'true');
+    }
+  }
+
   function pintarResultados({ encuadrar = true } = {}) {
     const res = $('#gRes');
     const app = A();
@@ -620,11 +667,6 @@
     const sel = r || st.calc.normal;
     res.innerHTML = `
       <div class="gps-tarjetas">${Object.keys(MODOS).map(tarjeta).join('')}</div>
-      <div class="gps-acciones">
-        <button type="button" class="boton primario gps-iniciar" id="gIniciar"${listo ? '' : ' disabled'}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l7 19-7-4-7 4z"/></svg>Iniciar</button>
-        <button type="button" class="boton" id="gSimular"${listo ? '' : ' disabled'} title="Ver el recorrido sin moverte">Simular</button>
-        <a class="boton" id="gGoogle" href="${listo ? esc(enlaceGoogle(sel)) : '#'}" target="_blank" rel="noopener">Abrir en Google Maps</a>
-      </div>
       ${
         listo
           ? `<details class="gps-pasos"><summary>Indicaciones · ${sel.pasos.length} pasos</summary><ol>${sel.pasos
@@ -635,11 +677,158 @@
       }
       <p class="texto-ayuda gps-nota">Gasto estimado con ${String(consumoBase()).replace('.', ',')} l/100 km y ${esc(app.NOMBRES[app.estado.combustible])}${st.calc.precioRef ? ` a ${app.euros(st.calc.precioRef)} €/l (media del camino)` : ''}. Los tiempos no incluyen el tráfico en tiempo real.</p>`;
     $$('.gps-tarjeta', res).forEach((b) => b.addEventListener('click', () => elegirModo(b.dataset.modo)));
-    $('#gIniciar').addEventListener('click', () => iniciarNavegacion(false));
-    $('#gSimular').addEventListener('click', () => iniciarNavegacion(true));
+    pintarAcciones();
     pintarRecientes();
     if (listo) pintarMapa({ encuadrar });
     app.hoja('medio');
+  }
+
+  /* ---------------- Incidentes (avisos de los conductores, como Waze) ---------------- */
+  const INC = {
+    accidente: { n: 'Accidente', e: '💥', c: '#e5484d' },
+    atasco: { n: 'Atasco', e: '🚗', c: '#f5a524' },
+    control: { n: 'Control policial', e: '👮', c: '#3b82f6' },
+    radar: { n: 'Radar móvil', e: '📷', c: '#8b5cf6' },
+    obras: { n: 'Obras', e: '🚧', c: '#f97316' },
+    peligro: { n: 'Peligro en la vía', e: '⚠️', c: '#eab308' },
+    averiado: { n: 'Vehículo parado', e: '🚙', c: '#64748b' },
+    tiempo: { n: 'Mal tiempo', e: '🌧️', c: '#0ea5e9' },
+  };
+  const API = () => (window.GASOCHECK_API || '').replace(/\/$/, '');
+  const cab = () => ({ 'Content-Type': 'application/json', ...(window.Cuenta?.cabeceras?.() || {}) });
+  st.incidentes = [];
+  st.misAvisos = new Set(leer('gm.gps.misAvisos', []));
+
+  function limpiarIncidentes() {
+    if (st.capaInc) A().mapa.removeLayer(st.capaInc);
+    st.capaInc = null;
+  }
+
+  function pintarIncidentes() {
+    limpiarIncidentes();
+    if (!st.incidentes.length) return;
+    const g = L.layerGroup();
+    for (const i of st.incidentes) {
+      const t = INC[i.tipo] || { n: i.nombre, e: '❗', c: '#e5484d' };
+      const hace = Math.max(1, Math.round((Date.now() - i.creado) / 60000));
+      L.marker([i.lat, i.lng], { icon: L.divIcon({ className: '', html: `<div class="gps-inc" style="--c:${t.c}"><span>${t.e}</span></div>`, iconSize: [34, 34], iconAnchor: [17, 34] }), zIndexOffset: 900 })
+        .bindTooltip(`${esc(t.n)} · hace ${hace >= 60 ? Math.round(hace / 60) + ' h' : hace + ' min'}${i.confirmaciones ? ` · ${i.confirmaciones} confirmación${i.confirmaciones > 1 ? 'es' : ''}` : ''}`)
+        .addTo(g);
+    }
+    st.capaInc = g.addTo(A().mapa);
+  }
+
+  // Incidentes activos alrededor de una ruta
+  async function cargarIncidentes(linea) {
+    if (!linea?.length) return;
+    let s_ = 90, w = 180, n = -90, e = -180;
+    for (const [la, ln] of linea) {
+      s_ = Math.min(s_, la); n = Math.max(n, la); w = Math.min(w, ln); e = Math.max(e, ln);
+    }
+    const m = 0.02;
+    const q = `s=${(s_ - m).toFixed(4)}&w=${(w - m).toFixed(4)}&n=${(n + m).toFixed(4)}&e=${(e + m).toFixed(4)}`;
+    try {
+      const r = await fetch(`${API()}/api/incidentes?${q}`, { headers: cab(), signal: AbortSignal.timeout(10000) });
+      if (!r.ok) return;
+      const d = await r.json();
+      st.incidentes = d.incidentes || [];
+      if (st.nav) st.nav.incKm = new Map(); // se recalcula su posición en la ruta
+      if (st.calc || st.nav) pintarIncidentes();
+    } catch {
+      /* sin conexión: se reintentará */
+    }
+  }
+
+  async function enviarIncidente(tipo) {
+    const nav = st.nav;
+    cerrarReporte();
+    if (!nav?.pos) return A().avisar('Todavía no tenemos tu posición. Espera un momento y vuelve a intentarlo.');
+    try {
+      const r = await fetch(`${API()}/api/incidentes`, { method: 'POST', headers: cab(), body: JSON.stringify({ tipo, lat: nav.pos[0], lng: nav.pos[1], rumbo: nav.rumbo }) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) return A().avisar(d.error || 'No se pudo enviar el aviso.');
+      if (d.incidente) {
+        st.misAvisos.add(d.incidente.id);
+        guardar('gm.gps.misAvisos', [...st.misAvisos].slice(-50));
+        st.incidentes = [d.incidente, ...st.incidentes.filter((x) => x.id !== d.incidente.id)];
+        pintarIncidentes();
+      }
+      A().avisar(d.existente ? 'Gracias: has confirmado un aviso que ya estaba.' : 'Gracias. Tu aviso ayudará a otros conductores.', 4000);
+      hablar('Aviso enviado');
+    } catch {
+      A().avisar('Sin conexión: no se pudo enviar el aviso.');
+    }
+  }
+
+  async function votarIncidente(id, sigue) {
+    $('#gnPregunta').hidden = true;
+    try {
+      const r = await fetch(`${API()}/api/incidentes/${encodeURIComponent(id)}/voto`, { method: 'POST', headers: cab(), body: JSON.stringify({ sigue }) });
+      const d = await r.json().catch(() => ({}));
+      if (r.ok) {
+        st.incidentes = d.incidente ? st.incidentes.map((x) => (x.id === id ? d.incidente : x)) : st.incidentes.filter((x) => x.id !== id);
+        pintarIncidentes();
+        A().avisar('Gracias por confirmarlo.', 2500);
+      }
+    } catch {
+      /* sin conexión */
+    }
+  }
+
+  function abrirReporte() {
+    const el = $('#gnReporte');
+    el.hidden = false;
+    el.querySelector('button[data-inc]')?.focus();
+  }
+  function cerrarReporte() {
+    const el = $('#gnReporte');
+    if (el) el.hidden = true;
+  }
+
+  // Durante la navegación: avisa de los incidentes que hay por delante y pregunta si siguen al pasar
+  function revisarIncidentes(nav) {
+    if (!st.incidentes.length) {
+      $('#gnIncidente').hidden = true;
+      return;
+    }
+    nav.incKm ||= new Map();
+    let proximo = null;
+    for (const i of st.incidentes) {
+      let pos = nav.incKm.get(i.id);
+      if (!pos) {
+        const m = proyectar({ ...nav, idx: 0 }, [i.lat, i.lng]);
+        pos = { km: m.km, d: m.d };
+        nav.incKm.set(i.id, pos);
+      }
+      if (pos.d > 0.08) continue; // no está en tu ruta
+      const delante = pos.km - nav.kmAct;
+      if (delante > 0 && delante < 2 && (!proximo || delante < proximo.delante)) proximo = { i, delante };
+      // Acabas de pasar: ¿sigue ahí?
+      if (delante < -0.02 && delante > -0.4 && !nav.preguntados.has(i.id) && !st.misAvisos.has(i.id)) {
+        nav.preguntados.add(i.id);
+        const t = INC[i.tipo] || { n: i.nombre, e: '❗' };
+        const el = $('#gnPregunta');
+        el.innerHTML = `<span>${t.e} ¿Sigue ahí: ${esc(t.n.toLowerCase())}?</span><button type="button" data-si>Sí, sigue</button><button type="button" data-no>Ya no está</button>`;
+        el.hidden = false;
+        el.querySelector('[data-si]').onclick = () => votarIncidente(i.id, true);
+        el.querySelector('[data-no]').onclick = () => votarIncidente(i.id, false);
+        clearTimeout(nav.timerPregunta);
+        nav.timerPregunta = setTimeout(() => (el.hidden = true), 15000);
+      }
+    }
+    const chip = $('#gnIncidente');
+    if (!proximo) {
+      chip.hidden = true;
+      return;
+    }
+    const t = INC[proximo.i.tipo] || { n: proximo.i.nombre, e: '❗', c: '#e5484d' };
+    chip.hidden = false;
+    chip.style.setProperty('--c', t.c);
+    chip.innerHTML = `<span class="e">${t.e}</span><span><b>${esc(t.n)}</b> a ${fmtDist(proximo.delante)}</span>`;
+    if (proximo.delante < 0.8 && !nav.incAvisados.has(proximo.i.id)) {
+      nav.incAvisados.add(proximo.i.id);
+      hablar(`Atención: ${t.n.toLowerCase()} a ${fmtDist(proximo.delante).replace(',', ' coma ')}`);
+    }
   }
 
   /* ---------------- Navegación ---------------- */
@@ -665,7 +854,7 @@
     });
     const total = cum[cum.length - 1];
     const paradaKm = ruta.parada ? pasos.find((p) => p.maneuver.type === 'arrive' && !p.ultimoTramo)?.km ?? null : null;
-    return { ruta, cum, pasos, total, idx: 0, kmAct: 0, avisados: new Set(), fuera: 0, paradaKm, seguir: true };
+    return { ruta, cum, pasos, total, idx: 0, kmAct: 0, avisados: new Set(), fuera: 0, paradaKm, seguir: true, incKm: new Map(), incAvisados: new Set(), preguntados: new Set() };
   }
 
   // Punto de la ruta más cercano a la posición (busca alrededor del último para ir rápido)
@@ -720,7 +909,18 @@
           <div><b id="gnDist"></b><span id="gnTexto"></span></div>
         </div>
         <div class="gps-luego" id="gnLuego" hidden></div>
+        <div class="gps-inc-chip" id="gnIncidente" hidden></div>
+        <div class="gps-pregunta" id="gnPregunta" role="alert" hidden></div>
         <button type="button" class="gps-centrar" id="gnCentrar" hidden><svg aria-hidden="true"><use href="#i-diana"/></svg>Centrar</button>
+        <button type="button" class="gps-avisar" id="gnAvisar" aria-label="Avisar de un incidente" title="Avisar de un incidente"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5L2.5 20h19z"/><path d="M12 10v4.5M12 17.2v.3"/></svg><span>Avisar</span></button>
+        <div class="gps-reporte" id="gnReporte" role="dialog" aria-label="Avisar de un incidente" hidden>
+          <div class="gps-reporte-caja">
+            <h3>¿Qué hay en la vía?</h3>
+            <div class="gps-reporte-grid">${Object.entries(INC).map(([k, t]) => `<button type="button" data-inc="${k}" style="--c:${t.c}"><span>${t.e}</span>${t.n}</button>`).join('')}</div>
+            <button type="button" class="boton gps-reporte-cancelar" id="gnReporteCancelar">Cancelar</button>
+            <p class="texto-ayuda">El aviso se envía con tu posición actual y lo verán los demás conductores durante un rato. Avisa solo cuando sea seguro (mejor si lo hace tu acompañante).</p>
+          </div>
+        </div>
         <div class="gps-barra-nav">
           <button type="button" class="gps-salir" id="gnSalir" aria-label="Terminar navegación">✕</button>
           <div class="gps-eta"><b id="gnEta"></b><span id="gnResto"></span></div>
@@ -728,6 +928,13 @@
         </div>`;
       $('.mapa-zona').appendChild(el);
       $('#gnSalir').addEventListener('click', terminarNavegacion);
+      $('#gnAvisar').addEventListener('click', abrirReporte);
+      $('#gnReporteCancelar').addEventListener('click', cerrarReporte);
+      $('#gnReporte').addEventListener('click', (ev) => {
+        const b = ev.target.closest('[data-inc]');
+        if (b) enviarIncidente(b.dataset.inc);
+        else if (ev.target.id === 'gnReporte') cerrarReporte();
+      });
       $('#gnCentrar').addEventListener('click', () => {
         if (!st.nav) return;
         st.nav.seguir = true;
@@ -742,6 +949,9 @@
       });
     }
     el.hidden = false;
+    $('#gnIncidente').hidden = true;
+    $('#gnPregunta').hidden = true;
+    cerrarReporte();
     $('#gnVoz').setAttribute('aria-pressed', String(st.nav.voz));
   }
 
@@ -796,6 +1006,7 @@
       nav.avisados.add(clave + 'p');
       hablar(sig.texto);
     }
+    revisarIncidentes(nav);
     // Tiempo y distancia que faltan
     const resto = Math.max(0, nav.total - kmAct);
     const minResto = nav.ruta.min * (resto / Math.max(0.001, nav.total));
@@ -819,7 +1030,7 @@
       const [r] = await osrm(puntos, { excluir: nav.ruta.excluir });
       if (st.nav !== nav) return;
       const nueva = prepararNav({ ...r, parada: puntos.length === 3 ? nav.ruta.parada : null });
-      Object.assign(nav, { ...nueva, voz: nav.voz, marca: nav.marca, watch: nav.watch, wake: nav.wake, simulada: nav.simulada, seguir: nav.seguir, pos: nav.pos, prev: nav.prev });
+      Object.assign(nav, { ...nueva, voz: nav.voz, marca: nav.marca, watch: nav.watch, wake: nav.wake, simulada: nav.simulada, seguir: nav.seguir, pos: nav.pos, prev: nav.prev, incAvisados: nav.incAvisados, preguntados: nav.preguntados, timerInc: nav.timerInc });
       st.calc[st.modo] = { ...nav.ruta };
       pintarMapa({ encuadrar: false });
       hablar('Ruta recalculada');
@@ -842,6 +1053,11 @@
     pintarMapa({ encuadrar: false });
     setTimeout(() => app.mapa.invalidateSize(), 50);
     app.mapa.on('dragstart', alArrastrar);
+    app.capaEstaciones(false);
+    pintarIncidentes();
+    cargarIncidentes(ruta.linea);
+    const navInc = st.nav;
+    navInc.timerInc = setInterval(() => (st.nav === navInc ? cargarIncidentes(navInc.ruta.linea) : clearInterval(navInc.timerInc)), 60000);
     try {
       st.nav.wake = await navigator.wakeLock?.request('screen');
     } catch {
@@ -894,6 +1110,8 @@
     guardar('gm.gps.voz', nav.voz);
     if (nav.watch != null) navigator.geolocation.clearWatch(nav.watch);
     clearInterval(nav.timer);
+    clearInterval(nav.timerInc);
+    clearTimeout(nav.timerPregunta);
     nav.wake?.release?.().catch(() => {});
     nav.marca?.remove();
     try {
@@ -906,9 +1124,12 @@
     document.body.classList.remove('navegando');
     const el = $('#gpsNav');
     if (el) el.hidden = true;
+    // Si se sale del GPS (desde otra pestaña), vuelven las gasolineras del mapa
+    A().capaEstaciones($('#vGps')?.hidden !== false);
     setTimeout(() => {
       A().mapa.invalidateSize();
-      pintarMapa();
+      if ($('#vGps') && !$('#vGps').hidden) pintarMapa();
+      else limpiarMapa(), limpiarIncidentes();
     }, 50);
   }
 
@@ -916,6 +1137,7 @@
   window.GasoGPS = {
     // Se llama al cambiar de pestaña
     alCambiar(p) {
+      A().capaEstaciones(p !== 'gps' && !st.nav);
       if (p === 'gps') {
         montar();
         $('#gConsumo') && ($('#gConsumo').textContent = String(consumoBase()).replace('.', ','));
@@ -928,7 +1150,10 @@
             pintarCampos();
           }
         }
-      } else if (!st.nav) limpiarMapa();
+      } else if (!st.nav) {
+        limpiarMapa();
+        limpiarIncidentes();
+      }
     },
     // Al cambiar de combustible o de precios, la parada puede ser otra
     alCambiarCombustible() {

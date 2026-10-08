@@ -2401,3 +2401,40 @@ body.navegando .mapa-zona .boton-leyenda { display: none !important; }
   .gps-barra-nav { left: 10px; right: 10px; bottom: calc(10px + env(safe-area-inset-bottom, 0px)); }
   .gps-centrar { bottom: calc(92px + env(safe-area-inset-bottom, 0px)); left: 10px; }
 }
+
+/* GPS: botones bajo los destinos, gasolineras de la ruta e incidentes */
+#gAcciones { margin-top: -2px; }
+#gAcciones .boton { flex: 1 1 auto; gap: 7px; }
+#gAcciones .gps-iniciar { flex: 2 1 140px; }
+#gAcciones svg { width: 18px; height: 18px; }
+.gps-google svg { fill: none; stroke: currentColor; stroke-width: 2; }
+.gps-google[aria-disabled="true"] { opacity: .5; pointer-events: none; }
+.gps-est { position: absolute; transform: translate(-50%, -100%); padding: 2px 7px; border-radius: 7px; font: 700 12.5px/1.3 var(--f-texto); color: #fff; border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,.45); white-space: nowrap; cursor: pointer; background: var(--medio); }
+.gps-est.t-barato { background: #1f9d55; }
+.gps-est.t-caro { background: #d13b3b; }
+.gps-inc { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); background: var(--c); border: 2px solid #fff; box-shadow: 0 2px 6px rgba(0,0,0,.45); }
+.gps-inc span { transform: rotate(45deg); font-size: 17px; line-height: 1; }
+.gps-inc-chip { position: absolute; top: 112px; right: 14px; display: flex; align-items: center; gap: 8px; max-width: 300px; padding: 8px 12px; border-radius: 12px; background: var(--superficie); border: 2px solid var(--c, var(--caro)); color: var(--texto); box-shadow: var(--sombra); font-size: 15px; }
+.gps-inc-chip .e { font-size: 22px; }
+.gps-pregunta { position: absolute; left: 14px; right: 14px; bottom: 96px; max-width: 520px; margin: 0 auto; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 12px; border-radius: 14px; background: var(--superficie); border: 1px solid var(--linea-fuerte); box-shadow: var(--sombra); font-weight: 600; }
+.gps-pregunta span { flex-basis: 100%; }
+.gps-pregunta button { flex: 1; min-height: 44px; border-radius: 10px; border: 1px solid var(--linea-fuerte); background: var(--superficie-2); font-weight: 700; cursor: pointer; }
+.gps-pregunta [data-si] { background: var(--acento); border-color: var(--acento); color: #fff; }
+.gps-avisar { position: absolute; right: 14px; bottom: 96px; width: 64px; height: 64px; border-radius: 50%; border: 3px solid #fff; background: #f59e0b; color: #111; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0; font: 800 11px/1 var(--f-texto); box-shadow: var(--sombra); cursor: pointer; }
+.gps-avisar svg { width: 26px; height: 26px; fill: none; stroke: #111; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.gps-reporte { position: absolute; inset: 0; z-index: 5; display: flex; align-items: flex-end; justify-content: center; background: rgba(0,0,0,.45); }
+.gps-reporte-caja { width: 100%; max-width: 560px; margin: 0 14px 14px; padding: 16px; border-radius: 18px; background: var(--superficie); border: 1px solid var(--linea); box-shadow: var(--sombra); display: flex; flex-direction: column; gap: 12px; }
+.gps-reporte-caja h3 { margin: 0; font-size: 18px; }
+.gps-reporte-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.gps-reporte-grid button { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 12px 4px; border-radius: 14px; border: 2px solid color-mix(in srgb, var(--c) 55%, transparent); background: color-mix(in srgb, var(--c) 16%, var(--superficie)); font-weight: 700; font-size: 12.5px; line-height: 1.2; cursor: pointer; text-align: center; }
+.gps-reporte-grid button span { font-size: 28px; line-height: 1; }
+.gps-reporte-cancelar { min-height: 46px; }
+@media (max-width: 760px) {
+  #gAcciones .boton { font-size: 14px; padding: 0 10px; }
+  .gps-inc-chip { top: calc(108px + env(safe-area-inset-top, 0px)); right: 10px; }
+  .gps-avisar { right: 10px; bottom: calc(92px + env(safe-area-inset-bottom, 0px)); }
+  .gps-pregunta { bottom: calc(92px + env(safe-area-inset-bottom, 0px)); left: 10px; right: 84px; }
+  .gps-reporte-caja { margin: 0 8px calc(8px + env(safe-area-inset-bottom, 0px)); }
+  .gps-reporte-grid button { font-size: 11.5px; padding: 10px 2px; }
+}
+@media (max-width: 760px) { .gps-luego { max-width: calc(50% - 16px); } .gps-inc-chip { max-width: calc(50% - 16px); } }

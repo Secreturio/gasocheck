@@ -1336,7 +1336,7 @@
     repintarIcono(id);
     const m = marcadores.get(id);
     if (!sinMover) {
-      if (m) grupo.zoomToShowLayer(m, () => {});
+      if (m && mapa.hasLayer(grupo)) grupo.zoomToShowLayer(m, () => {});
       else mapa.setView([e.lat, e.lng], Math.max(mapa.getZoom(), 15));
     }
     history.replaceState(null, '', '#e' + id);
@@ -2684,6 +2684,12 @@
       }
     },
     mapa, estado, precio, base, abrirFicha, avisar, hoja, NOMBRES, norm, euros, esc, distanciaKm,
+    // Muestra u oculta las gasolineras del mapa (el GPS solo enseña las de la ruta)
+    capaEstaciones(visible) {
+      if (visible && !mapa.hasLayer(grupo)) mapa.addLayer(grupo);
+      if (!visible && mapa.hasLayer(grupo)) mapa.removeLayer(grupo);
+    },
+    tierPrecio: (p) => tier(p),
     cambiarPestana, guardarLocal, pintarMiCoche: () => pintarMiCoche(), localizar: () => localizar(),
     nombreEstacion: (e) => `${e.rotulo} · ${e.localidad}`,
     // Coche y mediciones de consumo (se guardan en los ajustes, que se sincronizan con la cuenta)

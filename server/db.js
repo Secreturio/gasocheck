@@ -272,6 +272,31 @@ const MIGRACIONES = [
   CREATE INDEX repostajes_flota_fecha ON repostajes_flota(flota, fecha);
   `,
   },
+  // 5: incidentes de tráfico avisados por los conductores desde el GPS (como Waze)
+  `
+  CREATE TABLE incidentes (
+    id TEXT PRIMARY KEY,
+    tipo TEXT NOT NULL,
+    lat REAL NOT NULL,
+    lng REAL NOT NULL,
+    rumbo REAL,
+    creado INTEGER NOT NULL,
+    expira INTEGER NOT NULL,
+    quien TEXT NOT NULL,
+    usuario TEXT REFERENCES usuarios(id) ON DELETE SET NULL,
+    confirmaciones INTEGER NOT NULL DEFAULT 0,
+    negaciones INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE INDEX incidentes_pos ON incidentes(lat, lng);
+  CREATE INDEX incidentes_expira ON incidentes(expira);
+  CREATE TABLE incidentes_votos (
+    incidente TEXT NOT NULL REFERENCES incidentes(id) ON DELETE CASCADE,
+    quien TEXT NOT NULL,
+    sigue INTEGER NOT NULL,
+    fecha INTEGER NOT NULL,
+    PRIMARY KEY (incidente, quien)
+  );
+  `,
 ];
 
 export const CLAVE_BD = 'bd/gasocheck.sqlite';

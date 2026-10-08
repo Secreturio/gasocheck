@@ -19,6 +19,7 @@ import { validarTicket } from './ticket.js';
 import { crearFlotas } from './flotas.js';
 import { crearFotos } from './fotos.js';
 import { crearFotoCoche } from './fotocoche.js';
+import { crearIncidentes } from './incidentes.js';
 
 export const VERSION = '1.8.0';
 
@@ -87,6 +88,7 @@ export async function crearApp({ almacen, demo = false, appUrl = '' }) {
   const flotas = crearFlotas(db);
   const fotos = crearFotos(almacen);
   const fotoCoche = crearFotoCoche(almacen);
+  const incidentes = crearIncidentes(db);
 
   // Búsquedas de foto del coche: como mucho 20 por hora y persona (Wikipedia pide un uso moderado)
   const busquedasCoche = new Map();
@@ -404,6 +406,22 @@ export async function crearApp({ almacen, demo = false, appUrl = '' }) {
       return { combustible: comb, actualizado: d.fecha, gasolineras: lista };
     }],
 
+    // ---- Incidentes de tráfico (GPS) ----
+    ['GET', '/api/incidentes', {}, (c) => {
+      const q = c.url.searchParams;
+      const z = { s: Number(q.get('s')), w: Number(q.get('w')), n: Number(q.get('n')), e: Number(q.get('e')) };
+      if (!Object.values(z).every(Number.isFinite) || z.n - z.s > 6 || z.e - z.w > 8 || z.n < z.s || z.e < z.w) return error(400, 'Indica una zona (s, w, n, e) no demasiado grande.');
+      return { incidentes: incidentes.enZona(z), tipos: Object.fromEntries(Object.entries(incidentes.TIPOS).map(([k, v]) => [k, v.nombre])) };
+    }],
+    ['POST', '/api/incidentes', {}, (c) => {
+      const r = incidentes.crear(c.body, { ip: c.ip, usuario: c.usuario });
+      return r.error ? error(r.status, r.error) : new Respuesta(201, r);
+    }],
+    ['POST', /^\/api\/incidentes\/([^/]+)\/voto$/, {}, (c) => {
+      const r = incidentes.votar(c.p[0], c.body.sigue, { ip: c.ip, usuario: c.usuario });
+      return r.error ? error(r.status, r.error) : r;
+    }],
+
     // ---- Alertas, avisos y notificaciones ----
     ['GET', '/api/alertas', { sesion: 'obligatoria' }, async (c) => {
       const alertas = [];
@@ -665,6 +683,7 @@ export async function crearApp({ almacen, demo = false, appUrl = '' }) {
     if (db.uno('SELECT 1 AS si FROM tokens WHERE expira < ? LIMIT 1', ahora)) db.ejecutar('DELETE FROM tokens WHERE expira < ?', ahora);
     const limite = new Date(ahora - 90 * 24 * 3600 * 1000).toISOString().slice(0, 10);
     if (db.uno('SELECT 1 AS si FROM visitas WHERE dia < ? LIMIT 1', limite)) db.ejecutar('DELETE FROM visitas WHERE dia < ?', limite);
+    incidentes.limpiar();
   }
 
   // Copia de seguridad de la base de datos una vez al día; se guardan las 14 últimas (copias/)
