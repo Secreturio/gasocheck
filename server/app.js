@@ -20,6 +20,9 @@ import { crearFlotas } from './flotas.js';
 import { crearFotos } from './fotos.js';
 import { crearFotoCoche } from './fotocoche.js';
 import { crearIncidentes } from './incidentes.js';
+import { crearPuntos } from './puntos.js';
+import { crearRutinas } from './rutinas.js';
+import { crearViajes } from './viajes.js';
 
 export const VERSION = '1.8.0';
 
@@ -88,7 +91,10 @@ export async function crearApp({ almacen, demo = false, appUrl = '' }) {
   const flotas = crearFlotas(db);
   const fotos = crearFotos(almacen);
   const fotoCoche = crearFotoCoche(almacen);
-  const incidentes = crearIncidentes(db);
+  const incidentes = crearIncidentes(db, reputacion);
+  const puntos = crearPuntos(db, { reputacion });
+  const rutinas = crearRutinas(db, { avisos });
+  const viajes = crearViajes(almacen);
 
   // Búsquedas de foto del coche: como mucho 20 por hora y persona (Wikipedia pide un uso moderado)
   const busquedasCoche = new Map();
@@ -177,7 +183,9 @@ export async function crearApp({ almacen, demo = false, appUrl = '' }) {
       const e = porId.get(id);
       return e ? `${e.rotulo} (${e.localidad})` : 'Tu gasolinera';
     };
-    return avisos.evaluar(precioActual, nombreDe);
+    const n = await avisos.evaluar(precioActual, nombreDe);
+    const n2 = await rutinas.rutasVigiladas(precioActual, nombreDe);
+    return n + n2;
   }
 
   let estacionesTxt = { ref: null, txt: '' };
@@ -422,6 +430,28 @@ export async function crearApp({ almacen, demo = false, appUrl = '' }) {
       return r.error ? error(r.status, r.error) : r;
     }],
 
+    // ---- Puntos, medallas y ranking del mes ----
+    ['GET', '/api/ranking', {}, async (c) => {
+      const d = await datosOk();
+      const porId = d ? porIdDe(d) : new Map();
+      const r = puntos.ranking({ provincia: c.url.searchParams.get('provincia') || '', usuario: c.usuario, provinciaDe: (id) => porId.get(id)?.provincia || null });
+      return { ...r, medallas: puntos.MEDALLAS };
+    }],
+
+    // ---- Viaje en directo (no usa la base de datos) ----
+    ['POST', '/api/viajes', { bd: false }, async (c) => {
+      const r = await viajes.crear(c.body, { ip: c.ip, usuario: null });
+      return r.error ? error(r.status, r.error) : new Respuesta(201, r);
+    }],
+    ['PUT', /^\/api\/viajes\/([^/]+)$/, { bd: false }, async (c) => {
+      const r = await viajes.actualizar(c.p[0], c.body);
+      return r.error ? error(r.status, r.error) : r;
+    }],
+    ['GET', /^\/api\/viajes\/([^/]+)$/, { bd: false }, async (c) => {
+      const r = await viajes.ver(c.p[0]);
+      return r.error ? error(r.status, r.error) : r;
+    }],
+
     // ---- Alertas, avisos y notificaciones ----
     ['GET', '/api/alertas', { sesion: 'obligatoria' }, async (c) => {
       const alertas = [];
@@ -525,7 +555,9 @@ export async function crearApp({ almacen, demo = false, appUrl = '' }) {
     // ---- Solo en modo demostración: evaluar los avisos ahora, sin esperar a la próxima actualización ----
     ['POST', '/api/demo/evaluar', {}, async () => {
       if (!demo) return error(404, 'Ruta no encontrada.');
-      await evaluarAvisos(await estaciones.obtener());
+      const d = await estaciones.obtener();
+      await evaluarAvisos(d);
+      await rutinas.precioDelDia(d, hoyMadrid());
       return { ok: true };
     }],
 
@@ -667,10 +699,14 @@ export async function crearApp({ almacen, demo = false, appUrl = '' }) {
     await enSerie(() =>
       conBD(async () => {
         enviados = await evaluarAvisos(datos);
+        // Precio del día: a partir de las 8 de la mañana (hora de Madrid), una vez por persona
+        const hora = Number(new Intl.DateTimeFormat('es-ES', { timeZone: 'Europe/Madrid', hour: '2-digit', hour12: false }).format(new Date()));
+        if (hora >= 8 && hora < 12) enviados += await rutinas.precioDelDia(datos, hoyMadrid());
         mantenimiento();
       })
     );
     if (!demo) await copiaDiaria().catch((e) => console.error('No se pudo hacer la copia de seguridad:', e.message));
+    await viajes.limpiar().catch(() => {});
     const resumen = { gasolineras: datos.estaciones.length, fecha: datos.fecha, diasHistorial: dias, avisos: enviados, ms: Date.now() - t0 };
     console.log('Actualización:', JSON.stringify(resumen));
     return resumen;

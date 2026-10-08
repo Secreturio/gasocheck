@@ -91,6 +91,21 @@ En local los datos se guardan en `data/almacen/` (o `data/almacen-demo/`), con l
 - **Filtro por marca**, botón **Compartir** y enlaces directos a cada gasolinera (`/#e<id>`).
 - **Modo sin conexión:** como app instalada, guarda los últimos precios y funciona sin cobertura.
 
+## Novedades de la versión 2.0: GPS para ahorrar
+
+- **El GPS sigue tu sentido de marcha**: si das la vuelta o te sales de la ruta, recalcula desde donde estás y en la dirección en la que vas (`bearings` de OSRM). «Mi ubicación» se toma en el momento de calcular, no al abrir la app.
+- **¿Me llega el depósito?** En «Opciones» indicas cuánto depósito te queda; si no llegas, te propone la gasolinera más barata antes de quedarte corto y la añade como parada.
+- **Tus descuentos en el GPS**: la «más barata» tiene en cuenta tus tarjetas y descuentos.
+- **Resumen al llegar**: km, tiempo, litros y euros del viaje, lo que ahorraste repostando, botón para apuntar el repostaje y **aparcamientos y lavados cerca del destino** (OpenStreetMap / Overpass).
+- **¿Y en eléctrico o híbrido?**: lo que costaría el mismo viaje.
+- **Casa y Trabajo** con el tiempo que tardas desde donde estás, y **precio del día**: cada mañana, notificación con la gasolinera más barata cerca de casa (`server/rutinas.js`).
+- **Rutas vigiladas**: aviso cuando baja el precio en las gasolineras de tu ruta habitual.
+- **Hora de salida**: indicas a qué hora quieres llegar y te dice cuándo salir (sin tráfico en tiempo real).
+- **Letra grande** al navegar y **mapa oscuro de noche** automático.
+- **Avisos más fiables**: los votos de conductores fiables pesan más y los avisos con 3 confirmaciones se marcan como confirmados.
+- **Puntos, medallas y ranking del mes** por provincia (Estadísticas; `server/puntos.js`, `GET /api/ranking`).
+- **Viaje en directo**: compartes un enlace (`viaje.html`) para que vean por dónde vas y a qué hora llegas (`server/viajes.js`, se borra a las 8 h).
+
 ## Novedades de la versión 1.9: pestaña GPS
 
 - **GPS dentro de la app** (`public/gps.js`): origen y destino con buscador de direcciones (Photon / OpenStreetMap) y cuatro rutas para comparar: **normal** (la más rápida), **eficiente** (la que menos combustible gasta según la velocidad de cada tramo y el consumo de tu coche), **gasolina barata** (parada en la más barata del camino sin desviarse demasiado) y **eficiente + barata**. Botones **Iniciar**, **Google Maps** y **Simular** justo debajo de los destinos.

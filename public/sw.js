@@ -1,7 +1,7 @@
 // Modo sin conexión: guarda la app y los últimos precios descargados.
 // Cambia VERSION al publicar cambios para renovar la caché.
-const VERSION = 'gasocheck-v33';
-const APP = ['./', 'index.html', 'styles.css', 'app.js', 'graficas.js', 'horario.js', 'micoche.js', 'coches.js', 'editor-imagen.js', 'cuenta.js', 'ojo.js', 'legal.js', 'ruta.js', 'gps.js', 'ticket.js', 'avisos.js', 'fotos.js', 'config.js', 'img/logo.png', 'img/favoritos-vacio.jpg', 'img/gasolinera.jpg', 'img/icon-192.png', 'img/favicon-32.png', 'manifest.webmanifest', 'vendor/leaflet.js', 'vendor/leaflet.css', 'vendor/leaflet.markercluster.js', 'vendor/MarkerCluster.css'];
+const VERSION = 'gasocheck-v34';
+const APP = ['./', 'index.html', 'styles.css', 'app.js', 'graficas.js', 'horario.js', 'micoche.js', 'coches.js', 'editor-imagen.js', 'cuenta.js', 'ojo.js', 'legal.js', 'ruta.js', 'gps.js', 'comunidad.js', 'ticket.js', 'avisos.js', 'fotos.js', 'config.js', 'img/logo.png', 'img/favoritos-vacio.jpg', 'img/gasolinera.jpg', 'img/icon-192.png', 'img/favicon-32.png', 'manifest.webmanifest', 'vendor/leaflet.js', 'vendor/leaflet.css', 'vendor/leaflet.markercluster.js', 'vendor/MarkerCluster.css'];
 const CDN = /^https:\/\/(unpkg\.com|fonts\.(googleapis|gstatic)\.com)\//;
 const GUARDAR_API = ['/api/estaciones', '/api/calidad', '/api/variaciones', '/api/problemas'];
 

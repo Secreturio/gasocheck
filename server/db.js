@@ -297,6 +297,18 @@ const MIGRACIONES = [
     PRIMARY KEY (incidente, quien)
   );
   `,
+  // 6: estado de los avisos automáticos de cada usuario (precio del día, ruta habitual…)
+  `
+  CREATE TABLE avisos_estado (
+    usuario TEXT NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+    clave TEXT NOT NULL,
+    valor TEXT,
+    fecha INTEGER NOT NULL,
+    PRIMARY KEY (usuario, clave)
+  );
+  CREATE INDEX incidentes_votos_quien ON incidentes_votos(quien, fecha);
+  CREATE INDEX incidentes_quien ON incidentes(quien, creado);
+  `,
 ];
 
 export const CLAVE_BD = 'bd/gasocheck.sqlite';

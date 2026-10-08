@@ -983,6 +983,7 @@
           <label class="sel"><span class="sr">Ámbito</span><select id="ambitoTend">${opcionesProv}</select></label></div>
         <div id="tendCaja"><p class="texto-ayuda">Cargando…</p></div>
       </section>
+      <section class="bloque" id="bloqueRanking"></section>
       <section class="bloque">
         <h3>Provincias, de más barata a más cara</h3>
         <p class="texto-ayuda">Media oficial de hoy, sin descuentos. Toca una para ver sus gasolineras.</p>
@@ -1007,6 +1008,7 @@
       </section>`;
 
     el.querySelector('#ambitoTend').addEventListener('change', () => pintarEstadisticas());
+    window.GasoPuntos?.pintar($('#bloqueRanking'), provSel);
     $$('[data-prov]', el).forEach((b) =>
       b.addEventListener('click', () => {
         const l = estado.lugares.find((x) => x.tipo === 'provincia' && x.nombre === b.dataset.prov);
@@ -2724,6 +2726,23 @@
       if (!visible && mapa.hasLayer(grupo)) mapa.removeLayer(grupo);
     },
     tierPrecio: (p) => tier(p),
+    // Precio con los descuentos de la persona (aunque en el mapa se vea el oficial)
+    precioConDto(e, c = estado.combustible) {
+      const p = base(e, c);
+      if (p == null) return null;
+      const d = ahorroDe(e, c);
+      return d ? p - d.ahorro : p;
+    },
+    // Apuntar un repostaje en esa gasolinera (abre Mis repostajes con el formulario)
+    apuntarRepostaje(id) {
+      const e = estado.porId.get(id);
+      if (!e) return;
+      if (!conSesion()) return pedirCuenta('apuntar tus repostajes');
+      prepararRepostaje(e);
+    },
+    conSesion,
+    pedirCuenta,
+    tieneDescuentos: () => Array.isArray(estado.descuentos) && estado.descuentos.length > 0,
     compartirDatos,
     cambiarPestana, guardarLocal, pintarMiCoche: () => pintarMiCoche(), localizar: () => localizar(),
     nombreEstacion: (e) => `${e.rotulo} · ${e.localidad}`,

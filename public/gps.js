@@ -29,7 +29,7 @@
     destino: null,
     modo: leer('gm.gps.modo', 'normal'),
     opciones: (() => {
-      const o = { desvio: 3, litros: null, evitar: '', ...leer('gm.gps.opciones', {}) };
+      const o = { desvio: 3, litros: null, evitar: '', deposito: '', llegada: '', letraGrande: false, nocheAuto: true, ...leer('gm.gps.opciones', {}) };
       if (o.peajes && !o.evitar) o.evitar = 'toll'; // versión anterior
       delete o.peajes;
       return o;
@@ -115,9 +115,11 @@
     return { linea, km: r.distance / 1000, min: r.duration / 60, pasos, litros, limites: limites.some(Boolean) ? limites : null, ...extra };
   }
 
-  async function osrm(puntos, { alternativas = false, excluir = '' } = {}) {
+  async function osrm(puntos, { alternativas = false, excluir = '', rumbo = null } = {}) {
     const coords = puntos.map((p) => `${(+p.lng).toFixed(6)},${(+p.lat).toFixed(6)}`).join(';');
-    const base = `${SERVIDOR}/route/v1/driving/${coords}?overview=full&geometries=geojson&steps=true${alternativas && puntos.length === 2 ? '&alternatives=3' : ''}${excluir ? '&exclude=' + excluir : ''}`;
+    // Con rumbo, la ruta sale en el sentido en que ya vas (no te manda dar la vuelta si no hace falta)
+    const bearings = rumbo != null && Number.isFinite(rumbo) ? '&bearings=' + [`${Math.round((rumbo + 360) % 360)},60`, ...puntos.slice(1).map(() => '')].join(';') : '';
+    const base = `${SERVIDOR}/route/v1/driving/${coords}?overview=full&geometries=geojson&steps=true${alternativas && puntos.length === 2 ? '&alternatives=3' : ''}${excluir ? '&exclude=' + excluir : ''}${bearings}`;
     // Límites de velocidad: solo si el servidor los admite (el público de OSRM no siempre)
     const conLimites = leer('gm.gps.limites', true) !== false;
     const url = base + (conLimites ? '&annotations=distance,duration,maxspeed' : '&annotations=distance,duration');
@@ -164,7 +166,8 @@
       maxDesvioKm: st.opciones.desvio,
       litros,
       consumo: consumoBase(),
-      precioDe: (e) => app.precio(e, c),
+      // Con tus descuentos (tarjetas, apps) si tienes alguno: la más barata para ti
+      precioDe: (e) => (app.tieneDescuentos?.() ? app.precioConDto(e, c) : app.precio(e, c)),
       n: 400,
     });
     // No sirven las que están en la misma salida o justo en el destino
@@ -204,10 +207,28 @@
     return mejor;
   }
 
+  // Posición actual del GPS (rápida: acepta una de hace poco)
+  function posicionActual({ edad = 30000, espera = 6000 } = {}) {
+    return new Promise((resolve) => {
+      if (!navigator.geolocation) return resolve(null);
+      navigator.geolocation.getCurrentPosition((p) => resolve(p), () => resolve(null), { enableHighAccuracy: true, maximumAge: edad, timeout: espera });
+    });
+  }
+
   async function calcular() {
     const token = ++st.token;
     const res = $('#gRes');
     if (!st.origen || !st.destino) return;
+    // «Mi ubicación» siempre desde donde estás ahora, no desde donde estabas al abrir la app
+    if (st.origen.yo) {
+      res.innerHTML = '<p class="gps-cargando"><span class="gps-spin"></span>Buscando tu posición…</p>';
+      const p = await posicionActual();
+      if (token !== st.token) return;
+      if (p) {
+        st.origen = { ...st.origen, lat: p.coords.latitude, lng: p.coords.longitude };
+        A().estado.yo = { lat: p.coords.latitude, lng: p.coords.longitude };
+      }
+    }
     guardar('gm.gps.ultimo', { origen: st.origen.yo ? null : st.origen, destino: st.destino, via: st.via });
     guardarReciente(st.destino);
     res.innerHTML = '<p class="gps-cargando"><span class="gps-spin"></span>Calculando rutas…</p>';
@@ -237,6 +258,7 @@
       const corta = candidatas.filter((r) => r.min <= normal.min * 1.5).reduce((a, b) => (b.km < a.km - 0.05 ? b : a), normal);
       st.calc = { normal, corta, eficiente, barata: undefined, combinada: undefined, precioRef, alternativas: candidatas, cercanas: paradasEn(normal).lista };
       cargarIncidentes(normal.linea);
+      pintarFavs();
       pintarResultados();
       // Las dos con parada (necesitan más rutas)
       const infoN = paradasEn(normal);
@@ -385,6 +407,8 @@
         <button type="button" class="gps-anadir" id="gViaAnadir">+ Añadir parada</button>
       </div>
 
+      <div class="gps-favs" id="gFavs"></div>
+
       <div class="gps-acciones" id="gAcciones">
         <button type="button" class="boton primario gps-iniciar" id="gIniciar" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l7 19-7-4-7 4z"/></svg>Iniciar</button>
         <a class="boton gps-google" id="gGoogle" aria-disabled="true" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg>Google Maps</a>
@@ -407,9 +431,17 @@
           <label>Litros a repostar
             <input id="gLitros" inputmode="decimal" placeholder="${A().estado.ajustes.litros}" value="${esc(st.opciones.litros ?? '')}">
           </label>
+          <label>Depósito ahora
+            <select id="gDeposito">${[['', 'No lo sé'], ['1', 'Lleno'], ['0.75', '3/4'], ['0.5', 'Medio'], ['0.25', '1/4'], ['0.1', 'En reserva']].map(([v, t]) => `<option value="${v}"${v === String(st.opciones.deposito ?? '') ? ' selected' : ''}>${t}</option>`).join('')}</select>
+          </label>
+          <label>Quiero llegar a las
+            <input id="gLlegada" type="time" value="${esc(st.opciones.llegada || '')}">
+          </label>
           <label class="gps-evitar">Evitar
             <select id="gEvitar">${[['', 'Nada'], ['toll', 'Peajes'], ['motorway', 'Autopistas y autovías'], ['ferry', 'Ferris']].map(([v, t]) => `<option value="${v}"${v === st.opciones.evitar ? ' selected' : ''}>${t}</option>`).join('')}</select>
           </label>
+          <label class="interruptor"><input type="checkbox" id="gLetra"${st.opciones.letraGrande ? ' checked' : ''}><i></i>Letra grande al navegar</label>
+          <label class="interruptor"><input type="checkbox" id="gNoche"${st.opciones.nocheAuto !== false ? ' checked' : ''}><i></i>Mapa oscuro de noche (automático)</label>
         </div>
         <p class="texto-ayuda">El gasto se calcula con tu combustible (el que eliges arriba) y el consumo de tu coche: <b id="gConsumo"></b> l/100 km. Cámbialo en <a href="#" id="gMiCoche">Mi coche</a>.</p>
       </details>
@@ -463,14 +495,25 @@
       if (st.origen && st.destino) calcular();
     });
     $$('.gps-modos [data-modo]', v).forEach((b) => b.addEventListener('click', () => elegirModo(b.dataset.modo)));
-    const opc = () => {
-      st.opciones = { desvio: +$('#gDesvio').value, litros: $('#gLitros').value.trim() || null, evitar: $('#gEvitar').value };
+    const opc = (recalcular = true) => {
+      st.opciones = {
+        desvio: +$('#gDesvio').value,
+        litros: $('#gLitros').value.trim() || null,
+        evitar: $('#gEvitar').value,
+        deposito: $('#gDeposito').value,
+        llegada: $('#gLlegada').value,
+        letraGrande: $('#gLetra').checked,
+        nocheAuto: $('#gNoche').checked,
+      };
       guardar('gm.gps.opciones', st.opciones);
+      if (!recalcular) return st.calc && pintarResultados({ encuadrar: false });
       if (st.origen && st.destino) calcular();
     };
-    $('#gDesvio').addEventListener('change', opc);
-    $('#gEvitar').addEventListener('change', opc);
-    $('#gLitros').addEventListener('change', opc);
+    $('#gDesvio').addEventListener('change', () => opc());
+    $('#gEvitar').addEventListener('change', () => opc());
+    $('#gLitros').addEventListener('change', () => opc());
+    // Estas no cambian la ruta, solo lo que se muestra
+    for (const id of ['#gDeposito', '#gLlegada', '#gLetra', '#gNoche']) $(id).addEventListener('change', () => opc(false));
     $('#gMiCoche').addEventListener('click', (ev) => {
       ev.preventDefault();
       A().cambiarPestana('micoche');
@@ -482,6 +525,7 @@
     if (u?.via) st.via = u.via;
     pintarCampos();
     pintarRecientes();
+    pintarFavs();
   }
 
   function pintarCampos() {
@@ -787,6 +831,289 @@
     }
   }
 
+  /* ---------- Depósito: ¿me llega? ---------- */
+  function capacidadDeposito() {
+    const a = A().estado.ajustes;
+    const coche = (a.coches || []).find((c) => c.id === a.cocheActivo) || (a.coches || [])[0];
+    const v = Number(coche?.deposito) || Number(a.deposito) || 50;
+    return v > 0 ? v : 50;
+  }
+
+  function bloqueDeposito(r) {
+    const frac = parseFloat(st.opciones.deposito);
+    if (!(frac > 0) || !r?.km) return '';
+    const app = A();
+    const litros = capacidadDeposito() * frac;
+    const autonomia = (litros / consumoBase()) * 100;
+    const margen = autonomia - r.km;
+    if (margen > 30) return `<div class="gps-aviso ok-borde">✅ <span>Te llega el depósito: te sobrarán unos <b>${fmtDist(margen)}</b> de autonomía al llegar.</span></div>`;
+    if (margen > 0) return `<div class="gps-aviso medio-borde">⛽ <span>Llegarás muy justo: unos ${fmtDist(margen)} de margen. Mejor repostar por el camino.</span></div>`;
+    // No llega: la más barata antes de quedarte sin combustible (con 15 km de margen)
+    const limite = Math.max(5, autonomia - 15);
+    const opciones = (st.calc.cercanas || []).filter((p) => p.kmDesdeOrigen <= limite).sort((a, b) => a.precio - b.precio);
+    const p = opciones[0];
+    return `<div class="gps-aviso peligro-borde">⚠️ <span><b>No te llega el depósito</b>: tienes para unos ${fmtDist(autonomia)} y el viaje son ${fmtDist(r.km)}.
+      ${p ? `Reposta antes del km ${Math.round(limite)}. La más barata: <b>${esc(p.e.rotulo)}</b> (${esc(p.e.localidad)}), ${app.euros(p.precio)} €/l, en el km ${p.kmDesdeOrigen}.` : 'No hay gasolineras con tu combustible antes de ese punto cerca de la ruta.'}</span>
+      ${p ? `<button type="button" class="boton" id="gParadaDeposito" data-nombre="${esc(p.e.rotulo + ' · ' + p.e.localidad)}" data-lat="${p.e.lat}" data-lng="${p.e.lng}">Parar ahí</button>` : ''}</div>`;
+  }
+
+  /* ---------- Hora de salida para llegar a tiempo ---------- */
+  function bloqueSalida(r) {
+    const h = st.opciones.llegada;
+    if (!h || !r?.min) return '';
+    const [hh, mm] = h.split(':').map(Number);
+    const llegada = new Date();
+    llegada.setHours(hh, mm, 0, 0);
+    if (llegada < Date.now()) llegada.setDate(llegada.getDate() + 1);
+    const min = r.min * 1.1 + (r.parada ? 7 : 0); // 10 % de margen y 7 min para repostar
+    const salida = new Date(llegada.getTime() - min * 60000);
+    const ya = salida <= Date.now();
+    return `<div class="gps-aviso ${ya ? 'peligro-borde' : 'info-borde'}">🕒 <span>${ya ? `Para llegar a las ${esc(h)} deberías haber salido a las <b>${fmtHora(salida)}</b>. Si sales ahora llegas sobre las ${fmtHora(new Date(Date.now() + min * 60000))}.` : `Para llegar a las ${esc(h)}, sal a las <b>${fmtHora(salida)}</b>.`} <small>(Con un 10 % de margen${r.parada ? ' y 7 min para repostar' : ''}; sin datos de tráfico en tiempo real.)</small></span></div>`;
+  }
+
+  /* ---------- ¿Y en eléctrico o híbrido? ---------- */
+  function bloqueElectrico(r) {
+    if (!r?.km) return '';
+    const precio = r.parada?.precio ?? st.calc.precioRef;
+    if (!precio) return '';
+    const kwh = leer('gm.gps.kwh', 0.2);
+    const tuyo = r.litros * precio;
+    const electrico = (r.km * 17) / 100; // kWh (eléctrico medio: 17 kWh/100 km)
+    const hibrido = r.litros * 0.72 * precio;
+    const fila = (t, v, extra = '') => `<li><span>${t}</span><b>${eur(v)} €</b>${extra}</li>`;
+    return `<details class="gps-electrico"><summary>¿Y en coche eléctrico o híbrido?</summary>
+      <ul>
+        ${fila('Tu coche', tuyo, `<small>${fmtL(r.litros)}</small>`)}
+        ${fila('Híbrido', hibrido, `<small>${tuyo - hibrido > 0 ? '−' + eur(tuyo - hibrido) + ' €' : ''}</small>`)}
+        ${fila('Eléctrico (cargando en casa)', electrico * kwh, `<small>${Math.round(electrico)} kWh</small>`)}
+        ${fila('Eléctrico, carga rápida', electrico * 0.49, '<small>0,49 €/kWh</small>')}
+      </ul>
+      <label class="gps-kwh">Precio de tu luz <input id="gElecPrecio" inputmode="decimal" value="${String(kwh).replace('.', ',')}"> €/kWh</label>
+      <p class="texto-ayuda">Estimación orientativa: eléctrico medio de 17 kWh/100 km e híbrido que gasta un 28 % menos que tu coche.</p>
+    </details>`;
+  }
+
+  /* ---------- Rutas vigiladas: aviso si baja el precio en tu ruta habitual ---------- */
+  const rutasVigiladas = () => (A().estado.ajustes.gpsRutas || []).filter((r) => r && r.id);
+  function bloqueVigilar() {
+    const rutas = rutasVigiladas();
+    const nombre = `${st.origen?.nombre || ''} → ${st.destino?.nombre || ''}`;
+    const ya = rutas.find((r) => r.nombre === nombre);
+    return `<div class="gps-vigilar">
+      ${ya ? `<p class="texto-ayuda">🔔 Ya vigilas esta ruta: te avisaremos si baja el precio en sus gasolineras.</p>` : `<button type="button" class="boton" id="gVigilar">🔔 Avisarme si baja el precio en esta ruta</button>`}
+      ${rutas.length ? `<ul class="gps-rutas-v">${rutas.map((r) => `<li><span>${esc(r.nombre)} · ${esc(A().NOMBRES[r.combustible] || '')}</span><button type="button" data-quitar-ruta="${esc(r.id)}" aria-label="Dejar de vigilar ${esc(r.nombre)}">✕</button></li>`).join('')}</ul>` : ''}
+    </div>`;
+  }
+  function vigilarRuta() {
+    const app = A();
+    if (!app.conSesion()) return app.pedirCuenta('recibir avisos de precio en tu ruta');
+    const ids = (st.calc?.cercanas || []).map((p) => p.e.id).slice(0, 300);
+    if (!ids.length) return app.avisar('No hay gasolineras cerca de esta ruta para vigilar.');
+    const ruta = { id: Math.random().toString(36).slice(2, 10), nombre: `${st.origen.nombre} → ${st.destino.nombre}`.slice(0, 80), combustible: app.estado.combustible, estaciones: ids };
+    app.guardarAjustes({ gpsRutas: [...rutasVigiladas(), ruta].slice(-10) });
+    pedirPush();
+    app.avisar('Hecho: te avisaremos cuando baje el precio en esta ruta.', 4000);
+    pintarResultados({ encuadrar: false });
+  }
+  function quitarRutaVigilada(id) {
+    A().guardarAjustes({ gpsRutas: rutasVigiladas().filter((r) => r.id !== id) });
+    if (st.calc) pintarResultados({ encuadrar: false });
+  }
+  // Notificaciones push (si no las tiene activadas, se le pide permiso)
+  function pedirPush() {
+    if (!('Notification' in window) || Notification.permission === 'granted' || Notification.permission === 'denied') return;
+    window.GasoAvisos?.activarPush?.().catch(() => {});
+  }
+
+  /* ---------- Casa y Trabajo + precio del día ---------- */
+  const LUGARES_FAV = { casa: { e: '🏠', n: 'Casa', clave: 'gpsCasa' }, trabajo: { e: '💼', n: 'Trabajo', clave: 'gpsTrabajo' } };
+  function pintarFavs() {
+    const el = $('#gFavs');
+    if (!el) return;
+    const app = A();
+    const a = app.estado.ajustes;
+    const chip = (k) => {
+      const f = LUGARES_FAV[k];
+      const l = a[f.clave];
+      return l?.lat
+        ? `<span class="gps-fav"><button type="button" class="gps-fav-ir" data-fav="${k}" title="${esc(l.nombre)}">${f.e} ${f.n}<small id="gFavMin-${k}"></small></button><button type="button" class="gps-fav-ed" data-fav-editar="${k}" aria-label="Cambiar ${f.n}" title="Guardar el destino actual como ${f.n}">✎</button></span>`
+        : `<button type="button" class="gps-fav vacio" data-fav-editar="${k}">${f.e} Guardar ${f.n.toLowerCase()}</button>`;
+    };
+    const pd = a.precioDia || {};
+    el.innerHTML = `${chip('casa')}${chip('trabajo')}
+      ${a.gpsCasa?.lat ? `<label class="interruptor gps-precio-dia"><input type="checkbox" id="gPrecioDia"${pd.activo ? ' checked' : ''}><i></i>Cada mañana, avísame de la más barata cerca de casa</label>` : ''}`;
+    $$('[data-fav]', el).forEach((b) =>
+      b.addEventListener('click', () => {
+        st.destino = { ...a[LUGARES_FAV[b.dataset.fav].clave] };
+        pintarCampos();
+        if (st.origen) calcular();
+        else usarMiUbicacion();
+      })
+    );
+    $$('[data-fav-editar]', el).forEach((b) =>
+      b.addEventListener('click', () => {
+        const f = LUGARES_FAV[b.dataset.favEditar];
+        if (!st.destino?.lat) return app.avisar(`Busca primero tu ${f.n.toLowerCase()} en «¿A dónde vas?» y vuelve a pulsar aquí para guardarla.`, 5000);
+        if (a[f.clave]?.lat && !confirm(`¿Guardar «${st.destino.nombre}» como ${f.n}?`)) return;
+        app.guardarAjustes({ [f.clave]: { nombre: st.destino.nombre, lat: st.destino.lat, lng: st.destino.lng } });
+        app.avisar(`${f.n}: ${st.destino.nombre}`, 3000);
+        pintarFavs();
+      })
+    );
+    $('#gPrecioDia')?.addEventListener('change', (ev) => {
+      if (ev.target.checked && !app.conSesion()) {
+        ev.target.checked = false;
+        return app.pedirCuenta('recibir el precio del día');
+      }
+      app.guardarAjustes({ precioDia: { activo: ev.target.checked, combustible: app.estado.combustible, radio: 5 } });
+      if (ev.target.checked) {
+        pedirPush();
+        app.avisar(`Cada mañana te diremos la gasolinera con ${app.NOMBRES[app.estado.combustible]} más barata a menos de 5 km de casa.`, 5000);
+      }
+    });
+    // Tiempo hasta Casa y Trabajo desde donde estás
+    const o = st.origen?.lat ? st.origen : app.estado.yo;
+    if (!o) return;
+    for (const k of Object.keys(LUGARES_FAV)) {
+      const l = a[LUGARES_FAV[k].clave];
+      if (!l?.lat || kmEntre([o.lat, o.lng], [l.lat, l.lng]) < 0.3) continue;
+      osrm([o, l], { excluir: st.opciones.evitar || '' })
+        .then(([r]) => {
+          const m = $(`#gFavMin-${k}`);
+          if (m) m.textContent = ` · ${fmtMin(r.min)}`;
+        })
+        .catch(() => {});
+    }
+  }
+
+  /* ---------- Resumen al llegar y sitios cerca del destino ---------- */
+  async function resumenLlegada(nav) {
+    const app = A();
+    const fraccion = Math.min(1, nav.kmAct / Math.max(0.001, nav.total));
+    if (fraccion < 0.6) return; // terminó muy pronto: no es un viaje completo
+    const r = nav.ruta;
+    const km = nav.total * fraccion;
+    const litros = r.litros * fraccion;
+    const precio = r.parada?.precio ?? st.calc?.precioRef;
+    const min = (Date.now() - nav.inicio) / 60000;
+    const destino = st.destino;
+    let el = $('#gpsFin');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'gpsFin';
+      el.className = 'gps-fin';
+      $('.mapa-zona').appendChild(el);
+    }
+    el.innerHTML = `<div class="gps-fin-caja" role="dialog" aria-labelledby="gFinTit">
+      <h3 id="gFinTit">🏁 Has llegado${destino ? ` a ${esc(destino.nombre)}` : ''}</h3>
+      <div class="gps-fin-datos">
+        <div><b>${fmtDist(km)}</b><span>recorridos</span></div>
+        <div><b>${nav.simulada ? fmtMin(r.min) : fmtMin(min)}</b><span>de viaje</span></div>
+        <div><b>${fmtL(litros)}</b><span>${precio ? `≈ ${eur(litros * precio)} €` : 'gastados'}</span></div>
+      </div>
+      ${r.parada?.ahorro > 0.05 ? `<p class="ok">Repostando en ${esc(r.parada.e.rotulo)} ahorraste unos ${eur(r.parada.ahorro)} € frente a la media del camino.</p>` : ''}
+      ${r.parada ? `<button type="button" class="boton primario" id="gFinRepostaje">⛽ Apuntar el repostaje en ${esc(r.parada.e.rotulo)}</button>` : ''}
+      <h4>Cerca de tu destino</h4>
+      <div id="gFinCerca"><p class="texto-ayuda">Buscando aparcamientos y lavados…</p></div>
+      <button type="button" class="boton" id="gFinCerrar">Cerrar</button>
+    </div>`;
+    el.hidden = false;
+    $('#gFinCerrar').addEventListener('click', () => (el.hidden = true));
+    $('#gFinRepostaje')?.addEventListener('click', () => {
+      el.hidden = true;
+      app.apuntarRepostaje(r.parada.e.id);
+    });
+    if (!destino) return;
+    // Lavados: gasolineras verificadas que lo indican, a menos de 3 km
+    const lavados = app.estado.estaciones
+      .filter((e) => (app.estado.extras[e.id]?.s || []).includes('lavado'))
+      .map((e) => ({ e, km: kmEntre([destino.lat, destino.lng], [e.lat, e.lng]) }))
+      .filter((x) => x.km <= 3)
+      .sort((a, b) => a.km - b.km)
+      .slice(0, 3);
+    // Aparcamientos de OpenStreetMap (Overpass), a menos de 700 m
+    let parkings = [];
+    try {
+      const q = `[out:json][timeout:10];nwr["amenity"="parking"]["access"!="private"](around:700,${destino.lat},${destino.lng});out center 25;`;
+      const resp = await fetch('https://overpass-api.de/api/interpreter', { method: 'POST', body: 'data=' + encodeURIComponent(q), headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, signal: AbortSignal.timeout(12000) });
+      const d = await resp.json();
+      parkings = (d.elements || [])
+        .map((x) => {
+          const lat = x.lat ?? x.center?.lat, lng = x.lon ?? x.center?.lon;
+          const t = x.tags || {};
+          return { lat, lng, nombre: t.name || (t.parking === 'underground' ? 'Parking subterráneo' : 'Aparcamiento'), gratis: t.fee === 'no', pago: t.fee === 'yes', km: kmEntre([destino.lat, destino.lng], [lat, lng]) };
+        })
+        .filter((x) => Number.isFinite(x.lat))
+        .sort((a, b) => a.km - b.km)
+        .slice(0, 5);
+    } catch {
+      /* sin servicio de aparcamientos */
+    }
+    const caja = $('#gFinCerca');
+    if (!caja) return;
+    const fila = (ico, t, sub, lat, lng) => `<li><span class="gps-cerca-ico">${ico}</span><span><b>${esc(t)}</b><small>${sub}</small></span><a class="boton" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&travelmode=walking">Ir</a></li>`;
+    caja.innerHTML =
+      parkings.length || lavados.length
+        ? `<ul class="gps-cerca">${parkings.map((x) => fila('🅿️', x.nombre, `${fmtDist(x.km)}${x.gratis ? ' · gratis' : x.pago ? ' · de pago' : ''}`, x.lat, x.lng)).join('')}${lavados
+            .map((x) => fila('🧽', `${x.e.rotulo} (lavado)`, `${fmtDist(x.km)} · ${esc(x.e.localidad)}`, x.e.lat, x.e.lng))
+            .join('')}</ul><p class="texto-ayuda">Aparcamientos de OpenStreetMap; los lavados, de gasolineras verificadas.</p>`
+        : '<p class="texto-ayuda">No hemos encontrado aparcamientos ni lavados cerca.</p>';
+  }
+
+  /* ---------- Modo noche automático ---------- */
+  // ¿Es de noche ahora en ese punto? (altura aproximada del sol)
+  function esDeNoche(lat, lng, fecha = new Date()) {
+    const d = (fecha - Date.UTC(fecha.getUTCFullYear(), 0, 0)) / 864e5;
+    const decl = 23.44 * Math.sin(((2 * Math.PI) / 365) * (d - 81)) * RAD;
+    const horaSolar = fecha.getUTCHours() + fecha.getUTCMinutes() / 60 + lng / 15;
+    const angHora = (horaSolar - 12) * 15 * RAD;
+    const alt = Math.asin(Math.sin(lat * RAD) * Math.sin(decl) + Math.cos(lat * RAD) * Math.cos(decl) * Math.cos(angHora));
+    return alt / RAD < -4; // pasado el crepúsculo
+  }
+
+  /* ---------- Viaje en directo ---------- */
+  async function compartirEnDirecto() {
+    const nav = st.nav;
+    if (!nav) return;
+    const app = A();
+    if (nav.directo) return app.compartirDatos({ title: 'GasoCheck · Viaje en directo', text: `Sigue mi viaje a ${st.destino.nombre} en directo:`, url: nav.directo.url });
+    try {
+      const r = await fetch(`${API()}/api/viajes`, { method: 'POST', headers: cab(), body: JSON.stringify({ alias: window.Cuenta?.usuario?.()?.alias || '', destino: { nombre: st.destino.nombre, lat: st.destino.lat, lng: st.destino.lng } }) });
+      const d = await r.json();
+      if (!r.ok) return app.avisar(d.error || 'No se pudo compartir el viaje.');
+      const url = `${location.origin}${location.pathname.replace(/[^/]*$/, '')}viaje.html?id=${encodeURIComponent(d.id)}`;
+      nav.directo = { id: d.id, clave: d.clave, url, ultimo: 0 };
+      $('#gnDirecto').hidden = false;
+      enviarPosicionDirecto(nav, true);
+      app.compartirDatos({ title: 'GasoCheck · Viaje en directo', text: `Sigue mi viaje a ${st.destino.nombre} en directo:`, url });
+    } catch {
+      app.avisar('Sin conexión: no se pudo compartir el viaje.');
+    }
+  }
+  function enviarPosicionDirecto(nav, forzar = false, extra = {}) {
+    const dir = nav?.directo;
+    if (!dir || !nav.pos) return;
+    if (!forzar && Date.now() - dir.ultimo < 12000) return;
+    dir.ultimo = Date.now();
+    const resto = Math.max(0, nav.total - nav.kmAct);
+    const min = nav.ruta.min * (resto / Math.max(0.001, nav.total));
+    fetch(`${API()}/api/viajes/${encodeURIComponent(dir.id)}`, {
+      method: 'PUT',
+      headers: cab(),
+      body: JSON.stringify({ clave: dir.clave, lat: nav.pos[0], lng: nav.pos[1], rumbo: nav.rumbo, eta: Date.now() + min * 60000, restoKm: Math.round(resto * 10) / 10, ...extra }),
+      keepalive: true,
+    }).catch(() => {});
+  }
+  function pararDirecto(nav, llegado = false) {
+    const dir = nav?.directo;
+    if (!dir) return;
+    if (llegado) enviarPosicionDirecto(nav, true, { llegado: true });
+    else fetch(`${API()}/api/viajes/${encodeURIComponent(dir.id)}`, { method: 'PUT', headers: cab(), body: JSON.stringify({ clave: dir.clave, fin: true }), keepalive: true }).catch(() => {});
+    nav.directo = null;
+    const el = $('#gnDirecto');
+    if (el) el.hidden = true;
+  }
+
   function pintarResultados({ encuadrar = true } = {}) {
     const res = $('#gRes');
     const app = A();
@@ -794,10 +1121,29 @@
     const r = st.calc[st.modo];
     const listo = r && r !== undefined;
     const sel = r || st.calc.normal;
+    const abiertoElec = $('.gps-electrico', res)?.open;
     res.innerHTML = `
+      ${bloqueDeposito(sel)}
+      ${bloqueSalida(sel)}
       <div class="gps-tarjetas">${Object.keys(MODOS).map(tarjeta).join('')}</div>
-      <p class="texto-ayuda gps-nota">Gasto estimado con ${String(consumoBase()).replace('.', ',')} l/100 km y ${esc(app.NOMBRES[app.estado.combustible])}${st.calc.precioRef ? ` a ${app.euros(st.calc.precioRef)} €/l (media del camino)` : ''}. Los tiempos no incluyen el tráfico en tiempo real.</p>`;
+      ${bloqueElectrico(sel)}
+      ${bloqueVigilar()}
+      <p class="texto-ayuda gps-nota">Gasto estimado con ${String(consumoBase()).replace('.', ',')} l/100 km y ${esc(app.NOMBRES[app.estado.combustible])}${st.calc.precioRef ? ` a ${app.euros(st.calc.precioRef)} €/l (media del camino)` : ''}${app.tieneDescuentos?.() ? ', con tus descuentos' : ''}. Los tiempos no incluyen el tráfico en tiempo real.</p>`;
+    if (abiertoElec) $('.gps-electrico', res)?.setAttribute('open', '');
     $$('.gps-tarjeta', res).forEach((b) => b.addEventListener('click', () => elegirModo(b.dataset.modo)));
+    $('#gParadaDeposito')?.addEventListener('click', (ev) => {
+      const b = ev.currentTarget;
+      st.via = { nombre: b.dataset.nombre, lat: +b.dataset.lat, lng: +b.dataset.lng };
+      pintarCampos();
+      calcular();
+    });
+    $('#gVigilar')?.addEventListener('click', vigilarRuta);
+    $$('[data-quitar-ruta]', res).forEach((b) => b.addEventListener('click', () => quitarRutaVigilada(b.dataset.quitarRuta)));
+    $('#gElecPrecio')?.addEventListener('change', (ev) => {
+      guardar('gm.gps.kwh', parseFloat(String(ev.target.value).replace(',', '.')) || 0.2);
+      pintarResultados({ encuadrar: false });
+      $('.gps-electrico')?.setAttribute('open', '');
+    });
     pintarAcciones();
     pintarRecientes();
     if (listo) pintarMapa({ encuadrar });
@@ -833,8 +1179,8 @@
       const t = INC[i.tipo] || { n: i.nombre, e: '❗', c: '#e5484d' };
       const hace = Math.max(1, Math.round((Date.now() - i.creado) / 60000));
       panes();
-      L.marker([i.lat, i.lng], { pane: 'gpsTop', icon: L.divIcon({ className: '', html: `<div class="gps-inc" style="--c:${t.c}"><span>${t.e}</span></div>`, iconSize: [34, 34], iconAnchor: [17, 34] }), zIndexOffset: 900 })
-        .bindTooltip(`${esc(t.n)} · hace ${hace >= 60 ? Math.round(hace / 60) + ' h' : hace + ' min'}${i.confirmaciones ? ` · ${i.confirmaciones} confirmación${i.confirmaciones > 1 ? 'es' : ''}` : ''}`)
+      L.marker([i.lat, i.lng], { pane: 'gpsTop', icon: L.divIcon({ className: '', html: `<div class="gps-inc${i.confirmado ? ' confirmado' : ''}" style="--c:${t.c}"><span>${t.e}</span></div>`, iconSize: [34, 34], iconAnchor: [17, 34] }), zIndexOffset: 900 })
+        .bindTooltip(`${esc(t.n)}${i.confirmado ? ' · ✔ confirmado' : ''} · hace ${hace >= 60 ? Math.round(hace / 60) + ' h' : hace + ' min'}${i.confirmaciones ? ` · ${i.confirmaciones} confirmación${i.confirmaciones > 1 ? 'es' : ''}` : ''}`)
         .addTo(g);
     }
     st.capaInc = g.addTo(A().mapa);
@@ -875,7 +1221,8 @@
         st.incidentes = [d.incidente, ...st.incidentes.filter((x) => x.id !== d.incidente.id)];
         pintarIncidentes();
       }
-      A().avisar(d.existente ? 'Gracias: has confirmado un aviso que ya estaba.' : 'Gracias. Tu aviso ayudará a otros conductores.', 4000);
+      const pts = A().conSesion() ? (d.existente ? ' +2 puntos' : ' +5 puntos') : '';
+      A().avisar((d.existente ? 'Gracias: has confirmado un aviso que ya estaba.' : 'Gracias. Tu aviso ayudará a otros conductores.') + pts, 4000);
       hablar('Aviso enviado');
     } catch {
       A().avisar('Sin conexión: no se pudo enviar el aviso.');
@@ -890,7 +1237,7 @@
       if (r.ok) {
         st.incidentes = d.incidente ? st.incidentes.map((x) => (x.id === id ? d.incidente : x)) : st.incidentes.filter((x) => x.id !== id);
         pintarIncidentes();
-        A().avisar('Gracias por confirmarlo.', 2500);
+        A().avisar(`Gracias por confirmarlo.${A().conSesion() ? ' +2 puntos' : ''}`, 2500);
       }
     } catch {
       /* sin conexión */
@@ -946,10 +1293,10 @@
     const t = INC[proximo.i.tipo] || { n: proximo.i.nombre, e: '❗', c: '#e5484d' };
     chip.hidden = false;
     chip.style.setProperty('--c', t.c);
-    chip.innerHTML = `<span class="e">${t.e}</span><span><b>${esc(t.n)}</b> a ${fmtDist(proximo.delante)}</span>`;
+    chip.innerHTML = `<span class="e">${t.e}</span><span><b>${esc(t.n)}</b> a ${fmtDist(proximo.delante)}${proximo.i.confirmado ? ' <small>✔ confirmado</small>' : ''}</span>`;
     if (proximo.delante < 0.8 && !nav.incAvisados.has(proximo.i.id)) {
       nav.incAvisados.add(proximo.i.id);
-      hablar(`Atención: ${t.n.toLowerCase()} a ${fmtDist(proximo.delante).replace(',', ' coma ')}`);
+      hablar(`Atención: ${t.n.toLowerCase()}${proximo.i.confirmado ? ' confirmado' : ''} a ${fmtDist(proximo.delante).replace(',', ' coma ')}`);
     }
   }
 
@@ -1045,15 +1392,33 @@
             <p class="texto-ayuda">El aviso se envía con tu posición actual y lo verán los demás conductores durante un rato. Avisa solo cuando sea seguro (mejor si lo hace tu acompañante).</p>
           </div>
         </div>
+        <div class="gps-comp-menu" id="gnCompMenu" hidden>
+          <button type="button" data-comp="eta">🕒 Compartir hora de llegada</button>
+          <button type="button" data-comp="directo">📡 Compartir mi ubicación en directo</button>
+        </div>
         <div class="gps-barra-nav">
           <button type="button" class="gps-salir" id="gnSalir" aria-label="Terminar navegación">✕</button>
-          <div class="gps-eta"><b id="gnEta"></b><span id="gnResto"></span></div>
+          <div class="gps-eta"><b id="gnEta"></b><span id="gnResto"></span><span class="gps-directo" id="gnDirecto" hidden>📡 En directo · <button type="button" id="gnDirectoParar">Parar</button></span></div>
           <button type="button" class="gps-voz gps-comp-nav" id="gnCompartir" aria-label="Compartir hora de llegada" title="Compartir hora de llegada"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="18" cy="5" r="2.5"/><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="19" r="2.5"/><path d="M8.2 10.8l7.6-4.4M8.2 13.2l7.6 4.4"/></svg></button>
           <button type="button" class="gps-voz" id="gnVoz" aria-pressed="true" aria-label="Voz"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9z"/><path class="ondas" d="M16 9a4 4 0 0 1 0 6M18.5 6.5a7.5 7.5 0 0 1 0 11"/></svg></button>
         </div>`;
       $('.mapa-zona').appendChild(el);
       $('#gnSalir').addEventListener('click', terminarNavegacion);
-      $('#gnCompartir').addEventListener('click', compartirRuta);
+      $('#gnCompartir').addEventListener('click', () => {
+        const m = $('#gnCompMenu');
+        m.hidden = !m.hidden;
+      });
+      $('#gnCompMenu').addEventListener('click', (ev) => {
+        const b = ev.target.closest('[data-comp]');
+        if (!b) return;
+        $('#gnCompMenu').hidden = true;
+        if (b.dataset.comp === 'eta') compartirRuta();
+        else compartirEnDirecto();
+      });
+      $('#gnDirectoParar').addEventListener('click', () => {
+        pararDirecto(st.nav);
+        A().avisar('Has dejado de compartir tu viaje.', 3000);
+      });
       $('#gnAvisar').addEventListener('click', abrirReporte);
       $('#gnReporteCancelar').addEventListener('click', cerrarReporte);
       $('#gnReporte').addEventListener('click', (ev) => {
@@ -1075,6 +1440,8 @@
       });
     }
     el.hidden = false;
+    $('#gnCompMenu').hidden = true;
+    $('#gnDirecto').hidden = true;
     $('#gnIncidente').hidden = true;
     $('#gnPregunta').hidden = true;
     cerrarReporte();
@@ -1106,27 +1473,43 @@
     if (!pasado && v != null && lim && v < lim) nav.limAvisado = null;
   }
 
-  function actualizarNav(lat, lng, rumbo, vel) {
+  const rumboEntre = (a, b) => (Math.atan2((b[1] - a[1]) * Math.cos(a[0] * RAD), b[0] - a[0]) / RAD + 360) % 360;
+  const difAngulo = (a, b) => {
+    const d = Math.abs(((a - b) % 360) + 360) % 360;
+    return d > 180 ? 360 - d : d;
+  };
+
+  function actualizarNav(lat, lng, rumbo, vel, precision) {
     const nav = st.nav;
     if (!nav) return;
     const app = A();
     const p = [lat, lng];
     nav.pos = p;
+    // Rumbo: el del GPS o, si no lo da, el del último desplazamiento
+    if ((rumbo == null || Number.isNaN(rumbo)) && nav.prev && kmEntre(nav.prev, p) > 0.008) rumbo = rumboEntre(nav.prev, p);
+    if (rumbo == null || Number.isNaN(rumbo)) rumbo = null;
     const m = proyectar(nav, p);
-    // ¿Fuera de la ruta? (3 posiciones seguidas a más de 70 m) → se recalcula desde aquí
-    if (m.d > 0.07 && !nav.simulada) {
-      nav.fuera++;
-      if (nav.fuera >= 3 && !nav.recalculando) recalcular(p);
-    } else nav.fuera = 0;
-    if (m.d <= 0.07 || nav.simulada) {
+    // Margen para considerar que sigues en la ruta: según la precisión del GPS (entre 45 y 100 m)
+    const margen = Math.max(0.045, Math.min(0.1, ((precision || 20) / 1000) * 1.5));
+    if (!nav.simulada) {
+      // Fuera de la ruta: 2 posiciones seguidas lejos de ella
+      nav.fuera = m.d > margen ? nav.fuera + 1 : 0;
+      // En sentido contrario: vas por la ruta pero hacia atrás (has dado la vuelta)
+      const L_ = nav.ruta.linea;
+      const rRuta = rumboEntre(L_[Math.max(0, m.i - 1)], L_[Math.min(L_.length - 1, m.i)]);
+      const enMarcha = rumbo != null && (vel == null || vel > 8);
+      nav.contra = m.d <= margen && enMarcha && difAngulo(rumbo, rRuta) > 120 ? (nav.contra || 0) + 1 : 0;
+      const puede = !nav.recalculando && Date.now() - (nav.ultimoRecalc || 0) > 6000;
+      if (puede && (nav.fuera >= 2 || nav.contra >= 3)) recalcular(p, rumbo);
+    }
+    if (m.d <= margen || nav.simulada) {
       nav.idx = m.i;
-      nav.kmAct = Math.max(nav.kmAct - 0.05, m.km);
+      nav.kmAct = m.km; // también puede bajar: si vuelves atrás, las indicaciones se actualizan
     }
     // Marcador con flecha
     if (!nav.marca) nav.marca = L.marker(p, { pane: 'gpsTop', icon: L.divIcon({ className: '', html: '<div class="gps-flecha"><svg viewBox="0 0 24 24"><path d="M12 2l7 19-7-4-7 4z"/></svg></div>', iconSize: [40, 40], iconAnchor: [20, 20] }), interactive: false, zIndexOffset: 2000 }).addTo(app.mapa);
     nav.marca.setLatLng(p);
-    if (rumbo == null && nav.prev && kmEntre(nav.prev, p) > 0.005) rumbo = Math.atan2((p[1] - nav.prev[1]) * Math.cos(p[0] * RAD), p[0] - nav.prev[0]) / RAD;
-    if (rumbo != null && !Number.isNaN(rumbo)) {
+    if (rumbo != null) {
       nav.rumbo = rumbo;
       const f = nav.marca.getElement()?.querySelector('.gps-flecha');
       if (f) f.style.transform = `rotate(${rumbo}deg)`;
@@ -1164,16 +1547,19 @@
     const minResto = nav.ruta.min * (resto / Math.max(0.001, nav.total));
     $('#gnEta').textContent = `Llegada ${fmtHora(new Date(Date.now() + minResto * 60000))}`;
     $('#gnResto').textContent = `${fmtMin(minResto)} · ${fmtDist(resto)}`;
+    enviarPosicionDirecto(nav);
     if (resto < 0.03) {
       hablar('Has llegado a tu destino');
-      app.avisar(`Has llegado: ${st.destino.nombre}`, 6000);
+      nav.llegado = true;
+      pararDirecto(nav, true);
       terminarNavegacion();
     }
   }
 
-  async function recalcular(p) {
+  async function recalcular(p, rumbo = null) {
     const nav = st.nav;
     nav.recalculando = true;
+    nav.ultimoRecalc = Date.now();
     $('#gnTexto').textContent = 'Recalculando la ruta…';
     try {
       // Paradas que aún no se han pasado, en orden
@@ -1183,10 +1569,15 @@
       if (conParada) pendientes.push({ km: nav.paradaKm ?? Infinity, p: { lat: nav.ruta.parada.e.lat, lng: nav.ruta.parada.e.lng } });
       pendientes.sort((a, b) => a.km - b.km);
       const puntos = [{ lat: p[0], lng: p[1] }, ...pendientes.map((x) => x.p), st.destino];
-      const [r] = await osrm(puntos, { excluir: nav.ruta.excluir });
+      let r;
+      try {
+        [r] = await osrm(puntos, { excluir: nav.ruta.excluir, rumbo });
+      } catch {
+        [r] = await osrm(puntos, { excluir: nav.ruta.excluir }); // sin rumbo, por si no hay ruta en ese sentido
+      }
       if (st.nav !== nav) return;
       const nueva = prepararNav({ ...r, parada: conParada ? nav.ruta.parada : null });
-      Object.assign(nav, { ...nueva, voz: nav.voz, marca: nav.marca, watch: nav.watch, wake: nav.wake, simulada: nav.simulada, seguir: nav.seguir, pos: nav.pos, prev: nav.prev, incAvisados: nav.incAvisados, preguntados: nav.preguntados, timerInc: nav.timerInc });
+      Object.assign(nav, { ...nueva, ultimoRecalc: Date.now(), contra: 0, voz: nav.voz, marca: nav.marca, watch: nav.watch, wake: nav.wake, simulada: nav.simulada, seguir: nav.seguir, pos: nav.pos, prev: nav.prev, incAvisados: nav.incAvisados, preguntados: nav.preguntados, timerInc: nav.timerInc });
       st.calc[st.modo] = { ...nav.ruta };
       pintarMapa({ encuadrar: false });
       hablar('Ruta recalculada');
@@ -1203,8 +1594,19 @@
     if (!ruta) return;
     const app = A();
     if (st.nav) terminarNavegacion();
-    st.nav = { ...prepararNav(ruta), voz: leer('gm.gps.voz', true), simulada: simular };
+    st.nav = { ...prepararNav(ruta), voz: leer('gm.gps.voz', true), simulada: simular, inicio: Date.now() };
     document.body.classList.add('navegando');
+    document.body.classList.toggle('gps-grande', Boolean(st.opciones.letraGrande));
+    // De noche, mapa oscuro (se mira cada 5 minutos)
+    const cont = app.mapa.getContainer();
+    st.nav.oscuroAntes = cont.classList.contains('mapa-oscuro');
+    const revisarNoche = () => {
+      if (!st.nav || st.opciones.nocheAuto === false) return;
+      const p = st.nav.pos || ruta.linea[0];
+      cont.classList.toggle('mapa-oscuro', st.nav.oscuroAntes || esDeNoche(p[0], p[1]));
+    };
+    revisarNoche();
+    st.nav.timerNoche = setInterval(revisarNoche, 5 * 60000);
     pintarNavUI();
     pintarMapa({ encuadrar: false });
     setTimeout(() => app.mapa.invalidateSize(), 50);
@@ -1224,7 +1626,7 @@
       // Recorre la ruta a velocidad acelerada
       const nav = st.nav;
       let km = 0;
-      const paso = Math.max(0.03, nav.total / 400);
+      const paso = Math.max(0.03, nav.total / 220);
       nav.timer = setInterval(() => {
         if (st.nav !== nav) return clearInterval(nav.timer);
         km = Math.min(nav.total, km + paso);
@@ -1241,7 +1643,7 @@
       return terminarNavegacion();
     }
     st.nav.watch = navigator.geolocation.watchPosition(
-      (pos) => actualizarNav(pos.coords.latitude, pos.coords.longitude, pos.coords.heading, pos.coords.speed != null && pos.coords.speed >= 0 ? pos.coords.speed * 3.6 : null),
+      (pos) => actualizarNav(pos.coords.latitude, pos.coords.longitude, pos.coords.heading, pos.coords.speed != null && pos.coords.speed >= 0 ? pos.coords.speed * 3.6 : null, pos.coords.accuracy),
       (e) => {
         if (e.code === 1) {
           app.avisar('Para navegar, permite el acceso a tu ubicación en el navegador.');
@@ -1252,6 +1654,7 @@
     );
     // Mientras llega la primera posición, se ve la salida
     actualizarNav(ruta.linea[0][0], ruta.linea[0][1]);
+    st.nav.prev = null; // esa no es una posición real: no sirve para calcular el rumbo
   }
 
   function alArrastrar() {
@@ -1267,7 +1670,12 @@
     if (nav.watch != null) navigator.geolocation.clearWatch(nav.watch);
     clearInterval(nav.timer);
     clearInterval(nav.timerInc);
+    clearInterval(nav.timerNoche);
     clearTimeout(nav.timerPregunta);
+    pararDirecto(nav, nav.llegado);
+    document.body.classList.remove('gps-grande');
+    A().mapa.getContainer().classList.toggle('mapa-oscuro', Boolean(nav.oscuroAntes));
+    if (nav.llegado || nav.kmAct / Math.max(0.001, nav.total) > 0.9) setTimeout(() => resumenLlegada(nav), 120);
     nav.wake?.release?.().catch(() => {});
     nav.marca?.remove();
     try {
@@ -1296,6 +1704,7 @@
       A().capaEstaciones(p !== 'gps' && !st.nav);
       if (p === 'gps') {
         montar();
+        pintarFavs();
         $('#gConsumo') && ($('#gConsumo').textContent = String(consumoBase()).replace('.', ','));
         if (st.calc) pintarMapa();
         else if (st.destino && st.origen) calcular();

@@ -4,6 +4,8 @@
 // - Si varios dicen que ya no está, desaparece.
 // - Límites para evitar abusos: un aviso cada 2 minutos y 30 al día por persona; no se repite el mismo
 //   incidente si ya hay uno igual a menos de 300 m (en ese caso cuenta como confirmación).
+// - La reputación cuenta: los avisos de cuentas poco fiables duran la mitad, y el «ya no está» de un
+//   conductor fiable pesa el doble. Con 3 confirmaciones o más, el aviso se marca como confirmado.
 
 import crypto from 'node:crypto';
 import { huella } from './reportes.js';
@@ -29,9 +31,15 @@ const distM = (a, b) => {
   return Math.sqrt(x * x + y * y) * 111320;
 };
 
-export function crearIncidentes(db) {
+export function crearIncidentes(db, reputacion = null) {
   const nuevoId = () => crypto.randomBytes(9).toString('base64url');
-  const publico = (f) => ({ id: f.id, tipo: f.tipo, nombre: TIPOS[f.tipo]?.nombre || f.tipo, lat: f.lat, lng: f.lng, rumbo: f.rumbo, creado: f.creado, expira: f.expira, confirmaciones: f.confirmaciones });
+  const publico = (f) => ({ id: f.id, tipo: f.tipo, nombre: TIPOS[f.tipo]?.nombre || f.tipo, lat: f.lat, lng: f.lng, rumbo: f.rumbo, creado: f.creado, expira: f.expira, confirmaciones: f.confirmaciones, confirmado: f.confirmaciones >= 3 });
+  // Peso de un voto según quién lo da: anónimo 0,5; cuenta normal 1; fiable 2
+  const pesoDe = (quien) => {
+    if (!quien.startsWith('u:') || !reputacion) return quien.startsWith('u:') ? 1 : 0.5;
+    const r = reputacion.de(quien.slice(2));
+    return r.nivel === 'fiable' ? 2 : r.nivel === 'baja' ? 0.5 : 1;
+  };
 
   function votar(id, quien, sigue) {
     const i = db.uno('SELECT * FROM incidentes WHERE id = ? AND expira > ?', id, Date.now());
@@ -45,10 +53,13 @@ export function crearIncidentes(db) {
          ON CONFLICT(incidente, quien) DO UPDATE SET sigue = excluded.sigue, fecha = excluded.fecha`,
         id, quien, sigue ? 1 : 0, Date.now()
       );
-      const c = db.uno('SELECT COALESCE(SUM(sigue), 0) AS si, COUNT(*) - COALESCE(SUM(sigue), 0) AS no FROM incidentes_votos WHERE incidente = ?', id);
+      const votos = db.todos('SELECT quien, sigue FROM incidentes_votos WHERE incidente = ?', id);
+      const c = { si: votos.filter((v) => v.sigue).length, no: votos.filter((v) => !v.sigue).length };
+      const pesoSi = votos.filter((v) => v.sigue).reduce((a, v) => a + pesoDe(v.quien), 0);
+      const pesoNo = votos.filter((v) => !v.sigue).reduce((a, v) => a + pesoDe(v.quien), 0);
       // Confirmado: dura otro periodo completo desde ahora (con un máximo de 24 h desde que se avisó)
       const expira = sigue ? Math.min(i.creado + MAX_VIDA, Math.max(i.expira, Date.now() + TIPOS[i.tipo].dura)) : i.expira;
-      if (c.no >= NEGACIONES_BORRAR && c.no > c.si) db.ejecutar('UPDATE incidentes SET expira = ?, confirmaciones = ?, negaciones = ? WHERE id = ?', Date.now(), c.si, c.no, id);
+      if (pesoNo >= NEGACIONES_BORRAR && pesoNo > pesoSi) db.ejecutar('UPDATE incidentes SET expira = ?, confirmaciones = ?, negaciones = ? WHERE id = ?', Date.now(), c.si, c.no, id);
       else db.ejecutar('UPDATE incidentes SET expira = ?, confirmaciones = ?, negaciones = ? WHERE id = ?', expira, c.si, c.no, id);
     });
     const f = db.uno('SELECT * FROM incidentes WHERE id = ?', id);
@@ -85,9 +96,10 @@ export function crearIncidentes(db) {
       }
       const rumbo = Number.isFinite(Number(body.rumbo)) ? Math.round(Number(body.rumbo)) : null;
       const id = nuevoId();
+      const dura = TIPOS[tipo].dura * (pesoDe(quien) < 1 ? 0.5 : 1);
       db.ejecutar(
         'INSERT INTO incidentes (id, tipo, lat, lng, rumbo, creado, expira, quien, usuario) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-        id, tipo, Math.round(lat * 1e5) / 1e5, Math.round(lng * 1e5) / 1e5, rumbo, ahora, ahora + TIPOS[tipo].dura, quien, usuario?.id || null
+        id, tipo, Math.round(lat * 1e5) / 1e5, Math.round(lng * 1e5) / 1e5, rumbo, ahora, ahora + dura, quien, usuario?.id || null
       );
       return { ok: true, incidente: publico(db.uno('SELECT * FROM incidentes WHERE id = ?', id)) };
     },

@@ -208,5 +208,5 @@
     });
   });
 
-  window.GasoAvisos = { abrir, refrescar, formularioAlerta };
+  window.GasoAvisos = { abrir, refrescar, formularioAlerta, activarPush };
 })();
