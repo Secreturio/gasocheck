@@ -2438,3 +2438,78 @@ body.navegando .mapa-zona .boton-leyenda { display: none !important; }
   .gps-reporte-grid button { font-size: 11.5px; padding: 10px 2px; }
 }
 @media (max-width: 760px) { .gps-luego { max-width: calc(50% - 16px); } .gps-inc-chip { max-width: calc(50% - 16px); } }
+
+/* ===== GPS v3 ===== */
+.gps-modos { grid-template-columns: repeat(5, 1fr); }
+.gps-modos b { font-size: 12.5px; }
+.gps-tarjetas { grid-template-columns: repeat(2, 1fr); }
+.gps-puntos { grid-template-columns: 18px 1fr 44px; }
+.gps-anadir { grid-column: 2 / 3; justify-self: start; margin-top: -2px; padding: 4px 6px; border: 0; background: none; color: var(--acento-claro); font-weight: 600; font-size: 14px; cursor: pointer; }
+.gps-quitar { font-size: 16px; color: var(--texto-suave); }
+.gps-via input { border-style: dashed; }
+.gps-evitar { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--texto-suave); grid-column: 1 / -1; }
+#gAcciones .gps-compartir { flex: 0 0 46px; padding: 0; }
+#gAcciones .gps-compartir svg, .gps-comp-nav svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; }
+
+/* Gasolineras de la ruta: punto de color + precio a un lado (debajo de la línea de la ruta, nunca encima) */
+.gps-est { position: relative; width: 14px; height: 14px; display: block; padding: 0; border: 0; background: none; box-shadow: none; transform: none; cursor: pointer; }
+.gps-est i { position: absolute; inset: 0; border-radius: 50%; background: var(--medio); border: 2px solid #fff; box-shadow: 0 1px 3px rgba(0,0,0,.5); }
+.gps-est.t-barato i { background: #1f9d55; }
+.gps-est.t-caro i { background: #d13b3b; }
+.gps-est b { position: absolute; top: 50%; transform: translateY(-50%); padding: 1px 6px; border-radius: 6px; background: rgba(11, 20, 36, .92); color: #fff; font: 700 12px/1.35 var(--f-texto); white-space: nowrap; border: 1px solid rgba(255,255,255,.25); display: none; }
+.gps-est.der b { left: 17px; }
+.gps-est.izq b { right: 17px; }
+.gps-est.t-barato b { color: #6ee7a0; }
+.gps-est.t-caro b { color: #ff9b9b; }
+.gps-est.destacada b, .gps-cerca .gps-est b { display: block; }
+.gps-est:hover b { display: block; z-index: 2; }
+.gps-pin.parada { width: 80px; }
+.gps-pin.via::before { content: ""; width: 14px; height: 14px; border-radius: 50%; background: #fff; border: 4px solid #f59e0b; box-shadow: 0 1px 4px rgba(0,0,0,.4); }
+.gps-pin.via { width: 30px; height: 30px; display: grid; place-items: center; }
+
+/* Banner de navegación: la indicación siguiente va en una franja dentro del propio cartel */
+.gps-banner { flex-wrap: wrap; row-gap: 0; padding-bottom: 12px; }
+.gps-banner-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.gps-banner .gps-luego { position: static; flex: 1 0 100%; max-width: none; margin: 10px -16px -12px; padding: 7px 16px; border-radius: 0 0 16px 16px; background: rgba(0, 0, 0, .22); box-shadow: none; display: flex; align-items: center; gap: 8px; font-size: 14px; min-width: 0; }
+.gps-banner .gps-luego[hidden] { display: none !important; }
+.gps-luego-et { font-weight: 700; opacity: .85; flex: none; }
+.gps-luego-txt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; font-weight: 600; }
+.gps-banner .gps-luego .gps-ico { width: 22px; height: 22px; flex: none; }
+.gps-banner .gps-luego .gps-ico svg { width: 18px; height: 18px; stroke: #fff; }
+.gps-inc-chip { top: auto; bottom: 168px; right: 14px; }
+
+/* Velocímetro y límite */
+.gps-velocidad { position: absolute; left: 14px; bottom: 96px; display: flex; align-items: center; gap: 6px; }
+.gps-limite { width: 50px; height: 50px; border-radius: 50%; background: #fff; border: 6px solid #d61f1f; color: #111; display: grid; place-items: center; font: 800 17px/1 var(--f-texto); box-shadow: var(--sombra); }
+.gps-vel-actual { width: 58px; height: 58px; border-radius: 50%; background: var(--superficie); border: 2px solid var(--linea-fuerte); display: flex; flex-direction: column; align-items: center; justify-content: center; box-shadow: var(--sombra); }
+.gps-vel-actual b { font: 800 20px/1 var(--f-texto); }
+.gps-vel-actual small { font-size: 10px; color: var(--texto-suave); }
+.gps-velocidad.exceso .gps-vel-actual { background: #d61f1f; border-color: #fff; }
+.gps-velocidad.exceso .gps-vel-actual small { color: #fff; }
+.gps-centrar { bottom: 170px; }
+.gps-comp-nav { color: var(--texto); }
+
+@media (max-width: 760px) {
+  .gps-modos { grid-template-columns: repeat(2, 1fr); }
+  .gps-modos button:last-child:nth-child(odd) { grid-column: 1 / -1; }
+  .gps-banner { top: calc(10px + env(safe-area-inset-top, 0px)); }
+  .gps-banner .gps-luego { margin: 8px -14px -12px; padding: 6px 14px; font-size: 13.5px; }
+  .gps-velocidad { left: 10px; bottom: calc(92px + env(safe-area-inset-bottom, 0px)); }
+  .gps-limite { width: 46px; height: 46px; font-size: 16px; border-width: 5px; }
+  .gps-vel-actual { width: 52px; height: 52px; }
+  .gps-inc-chip { top: auto; bottom: calc(160px + env(safe-area-inset-bottom, 0px)); right: 10px; max-width: calc(100% - 20px); }
+  .gps-pregunta { right: 10px; bottom: calc(160px + env(safe-area-inset-bottom, 0px)); }
+  .gps-centrar { bottom: calc(160px + env(safe-area-inset-bottom, 0px)); }
+  .gps-salir, .gps-voz { width: 44px; height: 44px; }
+  .gps-barra-nav { gap: 8px; }
+}
+.gps-pregunta { bottom: 240px; }
+@media (max-width: 760px) { .gps-pregunta { bottom: calc(220px + env(safe-area-inset-bottom, 0px)); } }
+#gAcciones { flex-wrap: nowrap; }
+#gAcciones .gps-simular, #gAcciones .gps-compartir { flex: 0 0 46px; padding: 0; }
+#gAcciones .gps-simular svg { width: 18px; height: 18px; fill: currentColor; }
+#gAcciones .gps-google { flex: 1 1 auto; white-space: nowrap; }
+.gps-banner .gps-luego { flex-direction: row !important; justify-content: flex-start; text-align: left; }
+.gps-banner .gps-luego span { font-size: 14px; line-height: 1.3; }
+.gps-banner .gps-luego .gps-ico { display: grid; }
+@media (max-width: 760px) { .gps-banner .gps-luego span { font-size: 13.5px; } }

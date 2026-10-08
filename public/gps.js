@@ -17,6 +17,7 @@
 
   const MODOS = {
     normal: { titulo: 'Ruta normal', sub: 'La más rápida', ico: '<path d="M5 19L19 5M19 5h-7M19 5v7"/>' },
+    corta: { titulo: 'Más corta', sub: 'Menos kilómetros', ico: '<path d="M3 15l12-12 6 6L9 21z"/><path d="M7 11l2 2M10 8l2 2M13 5l2 2"/>' },
     eficiente: { titulo: 'Ruta eficiente', sub: 'Menos combustible', ico: '<path d="M6 18c0-7 5-12 13-12 0 8-5 13-12 13"/><path d="M6 18l6-6"/>' },
     barata: { titulo: 'Gasolina barata', sub: 'Para en la más barata', ico: '<path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="8" r="1.5"/>' },
     combinada: { titulo: 'Eficiente + barata', sub: 'Menos gasto total', ico: '<path d="M6 18c0-7 5-12 13-12 0 8-5 13-12 13"/><path d="M14 15l2.5 2.5L21 13"/>' },
@@ -27,7 +28,13 @@
     origen: null, // { nombre, lat, lng, yo? }
     destino: null,
     modo: leer('gm.gps.modo', 'normal'),
-    opciones: { desvio: 3, litros: null, peajes: false, ...leer('gm.gps.opciones', {}) },
+    opciones: (() => {
+      const o = { desvio: 3, litros: null, evitar: '', ...leer('gm.gps.opciones', {}) };
+      if (o.peajes && !o.evitar) o.evitar = 'toll'; // versión anterior
+      delete o.peajes;
+      return o;
+    })(),
+    via: null, // parada intermedia elegida por el usuario
     calc: null, // { normal, eficiente, barata, combinada, mediaPrecio }
     token: 0,
     capa: null,
@@ -100,19 +107,28 @@
       }
     }
     if (!litros) litros = (r.distance / 1000) * (base / 100) * relativo((r.distance / Math.max(1, r.duration)) * 3.6);
+    // Límite de velocidad de cada tramo (si el servidor lo da): km/h o null
+    const limites = [];
+    for (const leg of r.legs) for (const m of leg.annotation?.maxspeed || []) limites.push(m && m.speed && !m.unknown && !m.none ? (m.unit === 'mph' ? Math.round(m.speed * 1.609) : m.speed) : null);
     // Cada giro, rotonda o stop: frenar y volver a acelerar
     litros += pasos.filter((p) => ['turn', 'end of road', 'roundabout', 'rotary', 'roundabout turn'].includes(p.maneuver.type)).length * 0.006 * (base / 6.5);
-    return { linea, km: r.distance / 1000, min: r.duration / 60, pasos, litros, ...extra };
+    return { linea, km: r.distance / 1000, min: r.duration / 60, pasos, litros, limites: limites.some(Boolean) ? limites : null, ...extra };
   }
 
   async function osrm(puntos, { alternativas = false, excluir = '' } = {}) {
     const coords = puntos.map((p) => `${(+p.lng).toFixed(6)},${(+p.lat).toFixed(6)}`).join(';');
-    const url = `${SERVIDOR}/route/v1/driving/${coords}?overview=full&geometries=geojson&steps=true&annotations=distance,duration${alternativas ? '&alternatives=3' : ''}${excluir ? '&exclude=' + excluir : ''}`;
+    const base = `${SERVIDOR}/route/v1/driving/${coords}?overview=full&geometries=geojson&steps=true${alternativas && puntos.length === 2 ? '&alternatives=3' : ''}${excluir ? '&exclude=' + excluir : ''}`;
+    const url = base + '&annotations=distance,duration,maxspeed';
     if (cacheRutas.has(url)) return cacheRutas.get(url);
     const p = (async () => {
-      const r = await fetch(url, { signal: AbortSignal.timeout(20000) });
-      const d = await r.json().catch(() => ({}));
-      if (d.code !== 'Ok' || !d.routes?.length) throw new Error(d.message || 'No hay ruta por carretera entre esos puntos.');
+      const pedir = async (u) => {
+        const r = await fetch(u, { signal: AbortSignal.timeout(20000) });
+        return r.json().catch(() => ({}));
+      };
+      let d = await pedir(url);
+      // Si el servidor no da límites de velocidad, se pide sin ellos
+      if (d.code !== 'Ok' && /annotation|maxspeed/i.test(d.message || '')) d = await pedir(base + '&annotations=distance,duration');
+      if (d.code !== 'Ok' || !d.routes?.length) throw new Error(d.code === 'InvalidValue' && excluir ? 'el servidor de rutas no permite esa opción de «Evitar». Prueba con otra.' : d.message || 'No hay ruta por carretera entre esos puntos.');
       return d.routes.map((x) => prepararRuta(x, { excluir }));
     })();
     cacheRutas.set(url, p);
@@ -120,6 +136,18 @@
     return p;
   }
 
+  const puntosRuta = (...medio) => [st.origen, ...medio, st.destino].filter(Boolean);
+  // Km de la ruta en los que queda un punto
+  function kmEnRuta(linea, p) {
+    let acum = 0, mejor = { d: Infinity, km: 0 };
+    for (let i = 1; i < linea.length; i++) {
+      const seg = kmEntre(linea[i - 1], linea[i]);
+      const d = kmEntre(linea[i], [p.lat, p.lng]);
+      if (d < mejor.d) mejor = { d, km: acum + seg };
+      acum += seg;
+    }
+    return mejor.km;
+  }
   const parecidas = (a, b) => Math.abs(a.km - b.km) < 0.3 && Math.abs(a.min - b.min) < 1;
 
   // Gasolineras del camino ordenadas por lo que cuesta repostar en ellas (precio + desvío)
@@ -154,7 +182,9 @@
     for (const p of info.lista.slice(0, 3)) {
       let ruta;
       try {
-        [ruta] = await osrm([st.origen, { lat: p.e.lat, lng: p.e.lng }, st.destino], { excluir: base.excluir });
+        const est = { lat: p.e.lat, lng: p.e.lng };
+        const medio = !st.via ? [est] : p.kmDesdeOrigen < kmEnRuta(base.linea, st.via) ? [est, st.via] : [st.via, est];
+        [ruta] = await osrm(puntosRuta(...medio), { excluir: base.excluir });
       } catch {
         continue;
       }
@@ -173,21 +203,22 @@
     const token = ++st.token;
     const res = $('#gRes');
     if (!st.origen || !st.destino) return;
-    guardar('gm.gps.ultimo', { origen: st.origen.yo ? null : st.origen, destino: st.destino });
+    guardar('gm.gps.ultimo', { origen: st.origen.yo ? null : st.origen, destino: st.destino, via: st.via });
     guardarReciente(st.destino);
     res.innerHTML = '<p class="gps-cargando"><span class="gps-spin"></span>Calculando rutas…</p>';
     st.calc = null;
     pintarAcciones();
     limpiarMapa();
     try {
-      const evitar = st.opciones.peajes ? 'toll' : '';
-      const rapidas = await osrm([st.origen, st.destino], { alternativas: true, excluir: evitar });
+      const evitar = st.opciones.evitar || '';
+      const pts = puntosRuta(st.via);
+      const rapidas = await osrm(pts, { alternativas: true, excluir: evitar });
       if (token !== st.token) return;
       const candidatas = [...rapidas];
       // Una alternativa más sin autopistas (a menudo gasta menos aunque tarde algo más)
       if (!evitar) {
         try {
-          for (const r of await osrm([st.origen, st.destino], { excluir: 'motorway' })) if (!candidatas.some((c) => parecidas(c, r))) candidatas.push(r);
+          for (const r of await osrm(pts, { excluir: 'motorway' })) if (!candidatas.some((c) => parecidas(c, r))) candidatas.push(r);
         } catch {
           /* el servidor no permite excluir autopistas: se sigue con las demás */
         }
@@ -197,7 +228,9 @@
       const precioRef = paradasEn(normal).media || null;
       // Eficiente: la de menos combustible sin tardar más de un 35 % que la rápida
       const eficiente = candidatas.filter((r) => r.min <= normal.min * 1.35).reduce((a, b) => (b.litros < a.litros ? b : a), normal);
-      st.calc = { normal, eficiente, barata: undefined, combinada: undefined, precioRef, alternativas: candidatas, cercanas: paradasEn(normal).lista };
+      // Más corta: la de menos kilómetros sin tardar más de un 50 % que la rápida
+      const corta = candidatas.filter((r) => r.min <= normal.min * 1.5).reduce((a, b) => (b.km < a.km - 0.05 ? b : a), normal);
+      st.calc = { normal, corta, eficiente, barata: undefined, combinada: undefined, precioRef, alternativas: candidatas, cercanas: paradasEn(normal).lista };
       cargarIncidentes(normal.linea);
       pintarResultados();
       // Las dos con parada (necesitan más rutas)
@@ -224,50 +257,94 @@
     return L.divIcon({ className: '', html: `<div class="gps-pin ${clase}">${html}</div>`, iconSize: [30, 30], iconAnchor: [15, 15] });
   }
 
+  // Capas propias: las gasolineras quedan por DEBAJO de la línea de la ruta (nunca la tapan),
+  // y los marcadores importantes (salida, destino, parada, incidentes) por encima
+  function panes() {
+    const m = A().mapa;
+    if (m.getPane('gpsAlt')) return;
+    m.createPane('gpsAlt').style.zIndex = 405;
+    m.createPane('gpsEst').style.zIndex = 420;
+    m.createPane('gpsRuta').style.zIndex = 430;
+    m.createPane('gpsTop').style.zIndex = 650;
+  }
+
+  // Lado (en pantalla) en el que queda una gasolinera respecto al punto más cercano de la ruta:
+  // su precio se pone hacia fuera para no caer encima de la línea
+  function ladoDe(linea, p) {
+    let mejor = null, dMin = Infinity;
+    const paso = Math.max(1, Math.floor(linea.length / 3000));
+    for (let i = 0; i < linea.length; i += paso) {
+      const d = kmEntre(linea[i], p);
+      if (d < dMin) {
+        dMin = d;
+        mejor = linea[i];
+      }
+    }
+    return mejor && p[1] < mejor[1] ? 'izq' : 'der';
+  }
+
+  function zoomEtiquetas() {
+    const m = A().mapa;
+    m.getContainer().classList.toggle('gps-cerca', m.getZoom() >= 13);
+  }
+
   function pintarMapa({ encuadrar = true } = {}) {
     const app = A();
+    panes();
     limpiarMapa();
     if (!st.calc) return;
     const sel = st.calc[st.modo] || st.calc.normal;
     const g = L.layerGroup();
     const acento = getComputedStyle(document.documentElement).getPropertyValue('--acento').trim() || '#2f7bf6';
     // Otras rutas, en gris (se pueden elegir tocándolas)
+    const dibujadas = new Set([sel.linea]);
     for (const m of Object.keys(MODOS)) {
       const r = st.calc[m];
-      if (!r || r === sel || r.linea === sel.linea) continue;
-      L.polyline(r.linea, { color: '#7b8aa6', weight: 6, opacity: 0.55 })
+      if (!r || dibujadas.has(r.linea)) continue;
+      dibujadas.add(r.linea);
+      L.polyline(r.linea, { color: '#7b8aa6', weight: 6, opacity: 0.55, pane: 'gpsAlt' })
         .on('click', () => elegirModo(m))
         .bindTooltip(MODOS[m].titulo, { sticky: true })
         .addTo(g);
     }
-    L.polyline(sel.linea, { color: '#0b2a63', weight: 10, opacity: 0.9 }).addTo(g);
-    L.polyline(sel.linea, { color: acento, weight: 6, opacity: 1 }).addTo(g);
-    L.marker([st.origen.lat, st.origen.lng], { icon: pin('origen'), interactive: false }).addTo(g);
-    L.marker([st.destino.lat, st.destino.lng], { icon: pin('destino', '<svg viewBox="0 0 24 24"><path d="M6 21V4M6 4h11l-2 4 2 4H6"/></svg>') }).bindTooltip(esc(st.destino.nombre)).addTo(g);
-    // Solo las gasolineras alrededor de la ruta normal (el resto del mapa queda limpio)
+    L.polyline(sel.linea, { color: '#0b2a63', weight: 10, opacity: 0.9, pane: 'gpsRuta', interactive: false }).addTo(g);
+    L.polyline(sel.linea, { color: acento, weight: 6, opacity: 1, pane: 'gpsRuta', interactive: false }).addTo(g);
+    L.marker([st.origen.lat, st.origen.lng], { icon: pin('origen'), interactive: false, pane: 'gpsTop' }).addTo(g);
+    if (st.via) L.marker([st.via.lat, st.via.lng], { icon: pin('via'), pane: 'gpsTop' }).bindTooltip(esc(st.via.nombre)).addTo(g);
+    L.marker([st.destino.lat, st.destino.lng], { icon: pin('destino', '<svg viewBox="0 0 24 24"><path d="M6 21V4M6 4h11l-2 4 2 4H6"/></svg>'), pane: 'gpsTop' }).bindTooltip(esc(st.destino.nombre)).addTo(g);
+    // Gasolineras alrededor de la ruta normal: un punto de color y el precio al lado (hacia fuera de la ruta).
+    // De lejos solo se ven los precios de las más baratas; al acercarte, todos.
     const cercanas = st.calc.cercanas || [];
     if (cercanas.length) {
       const orden = cercanas.map((p) => p.precio).sort((a, b) => a - b);
       const corte = (q) => orden[Math.min(orden.length - 1, Math.floor(q * orden.length))];
       const c1 = corte(0.33), c2 = corte(0.66);
+      const destacadas = new Set([...cercanas].sort((a, b) => a.precio - b.precio).slice(0, 12).map((p) => p.e.id));
       for (const p of cercanas) {
         if (sel.parada && p.e.id === sel.parada.e.id) continue;
         const t = p.precio <= c1 ? 't-barato' : p.precio >= c2 && orden.length > 2 ? 't-caro' : 't-medio';
-        L.marker([p.e.lat, p.e.lng], { icon: L.divIcon({ className: '', html: `<div class="gps-est ${t}">${app.euros(p.precio)}</div>`, iconSize: [0, 0] }), title: `${p.e.rotulo} · ${p.e.localidad}` })
+        const lado = ladoDe(sel.linea, [p.e.lat, p.e.lng]);
+        L.marker([p.e.lat, p.e.lng], {
+          pane: 'gpsEst',
+          icon: L.divIcon({ className: '', html: `<div class="gps-est ${t} ${lado}${destacadas.has(p.e.id) ? ' destacada' : ''}"><i></i><b>${app.euros(p.precio)}</b></div>`, iconSize: [14, 14], iconAnchor: [7, 7] }),
+          title: `${p.e.rotulo} · ${p.e.localidad} · ${app.euros(p.precio)} €/l`,
+        })
           .on('click', () => app.abrirFicha(p.e.id, { sinMover: true }))
           .addTo(g);
       }
     }
     if (sel.parada) {
       const p = sel.parada;
-      L.marker([p.e.lat, p.e.lng], { icon: L.divIcon({ className: '', html: `<div class="gps-pin parada"><b>${app.euros(p.precio)}</b></div>`, iconSize: [64, 30], iconAnchor: [32, 30] }) })
-        .on('click', () => app.abrirFicha(p.e.id))
+      L.marker([p.e.lat, p.e.lng], { pane: 'gpsTop', icon: L.divIcon({ className: '', html: `<div class="gps-pin parada"><b>⛽ ${app.euros(p.precio)}</b></div>`, iconSize: [80, 30], iconAnchor: [40, 34] }) })
+        .on('click', () => app.abrirFicha(p.e.id, { sinMover: true }))
         .addTo(g);
     }
     st.capa = g.addTo(app.mapa);
+    app.mapa.off('zoomend', zoomEtiquetas).on('zoomend', zoomEtiquetas);
+    zoomEtiquetas();
     if (encuadrar && !st.nav) {
       const movil = matchMedia('(max-width: 760px)').matches;
-      app.mapa.fitBounds(L.latLngBounds(sel.linea), { paddingTopLeft: [30, movil ? 90 : 30], paddingBottomRight: [30, movil ? Math.round(innerHeight * 0.5) : 30] });
+      app.mapa.fitBounds(L.latLngBounds(sel.linea), { paddingTopLeft: [40, movil ? 90 : 40], paddingBottomRight: [40, movil ? Math.round(innerHeight * 0.5) : 40] });
     }
   }
 
@@ -287,6 +364,12 @@
             <button type="button" class="gps-yo" id="gYo" title="Usar mi ubicación" aria-label="Usar mi ubicación como origen"><svg aria-hidden="true"><use href="#i-diana"/></svg></button>
             <ul class="sugerencias gps-sug" id="gSugO" role="listbox" hidden></ul>
           </div>
+          <div class="gps-campo gps-via" id="gViaCampo" hidden>
+            <label for="gVia" class="sr">Parada intermedia</label>
+            <input id="gVia" type="search" autocomplete="off" placeholder="Parada intermedia" enterkeyhint="search" aria-controls="gSugV" aria-expanded="false">
+            <button type="button" class="gps-yo gps-quitar" id="gViaQuitar" title="Quitar la parada" aria-label="Quitar la parada intermedia">✕</button>
+            <ul class="sugerencias gps-sug" id="gSugV" role="listbox" hidden></ul>
+          </div>
           <div class="gps-campo">
             <label for="gDestino" class="sr">Destino</label>
             <input id="gDestino" type="search" autocomplete="off" placeholder="¿A dónde vas?" enterkeyhint="search" aria-controls="gSugD" aria-expanded="false">
@@ -294,12 +377,14 @@
           </div>
         </div>
         <button type="button" class="gps-invertir" id="gInvertir" title="Intercambiar origen y destino" aria-label="Intercambiar origen y destino"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4v16M8 4L4.5 7.5M8 4l3.5 3.5M16 20V4M16 20l-3.5-3.5M16 20l3.5-3.5"/></svg></button>
+        <button type="button" class="gps-anadir" id="gViaAnadir">+ Añadir parada</button>
       </div>
 
       <div class="gps-acciones" id="gAcciones">
         <button type="button" class="boton primario gps-iniciar" id="gIniciar" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l7 19-7-4-7 4z"/></svg>Iniciar</button>
         <a class="boton gps-google" id="gGoogle" aria-disabled="true" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg>Google Maps</a>
-        <button type="button" class="boton gps-simular" id="gSimular" disabled title="Ver el recorrido sin moverte">Simular</button>
+        <button type="button" class="boton gps-simular" id="gSimular" disabled title="Simular el recorrido sin moverte" aria-label="Simular el recorrido"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15l12-7.5z"/></svg></button>
+        <button type="button" class="boton gps-compartir" id="gCompartir" disabled title="Compartir la ruta" aria-label="Compartir la ruta"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="18" cy="5" r="2.5"/><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="19" r="2.5"/><path d="M8.2 10.8l7.6-4.4M8.2 13.2l7.6 4.4"/></svg></button>
       </div>
 
       <div class="gps-modos" role="radiogroup" aria-label="Tipo de ruta">
@@ -317,7 +402,9 @@
           <label>Litros a repostar
             <input id="gLitros" inputmode="decimal" placeholder="${A().estado.ajustes.litros}" value="${esc(st.opciones.litros ?? '')}">
           </label>
-          <label class="interruptor"><input type="checkbox" id="gPeajes"${st.opciones.peajes ? ' checked' : ''}><i></i>Evitar peajes</label>
+          <label class="gps-evitar">Evitar
+            <select id="gEvitar">${[['', 'Nada'], ['toll', 'Peajes'], ['motorway', 'Autopistas y autovías'], ['ferry', 'Ferris']].map(([v, t]) => `<option value="${v}"${v === st.opciones.evitar ? ' selected' : ''}>${t}</option>`).join('')}</select>
+          </label>
         </div>
         <p class="texto-ayuda">El gasto se calcula con tu combustible (el que eliges arriba) y el consumo de tu coche: <b id="gConsumo"></b> l/100 km. Cámbialo en <a href="#" id="gMiCoche">Mi coche</a>.</p>
       </details>
@@ -341,6 +428,23 @@
       if (!st.origen) usarMiUbicacion();
       else calcular();
     });
+    conectarCampo($('#gVia'), $('#gSugV'), (l) => {
+      st.via = l;
+      if (st.origen && st.destino) calcular();
+    });
+    $('#gViaAnadir').addEventListener('click', () => {
+      $('#gViaCampo').hidden = false;
+      $('#gViaAnadir').hidden = true;
+      $('#gVia').focus();
+    });
+    $('#gViaQuitar').addEventListener('click', () => {
+      st.via = null;
+      $('#gVia').value = '';
+      $('#gViaCampo').hidden = true;
+      $('#gViaAnadir').hidden = false;
+      if (st.origen && st.destino) calcular();
+    });
+    $('#gCompartir').addEventListener('click', compartirRuta);
     $('#gYo').addEventListener('click', () => usarMiUbicacion(true));
     $('#gIniciar').addEventListener('click', () => iniciarNavegacion(false));
     $('#gSimular').addEventListener('click', () => iniciarNavegacion(true));
@@ -355,12 +459,12 @@
     });
     $$('.gps-modos [data-modo]', v).forEach((b) => b.addEventListener('click', () => elegirModo(b.dataset.modo)));
     const opc = () => {
-      st.opciones = { desvio: +$('#gDesvio').value, litros: $('#gLitros').value.trim() || null, peajes: $('#gPeajes').checked };
+      st.opciones = { desvio: +$('#gDesvio').value, litros: $('#gLitros').value.trim() || null, evitar: $('#gEvitar').value };
       guardar('gm.gps.opciones', st.opciones);
       if (st.origen && st.destino) calcular();
     };
     $('#gDesvio').addEventListener('change', opc);
-    $('#gPeajes').addEventListener('change', opc);
+    $('#gEvitar').addEventListener('change', opc);
     $('#gLitros').addEventListener('change', opc);
     $('#gMiCoche').addEventListener('click', (ev) => {
       ev.preventDefault();
@@ -370,6 +474,7 @@
     const u = leer('gm.gps.ultimo', null);
     if (u?.destino) st.destino = u.destino;
     if (u?.origen) st.origen = u.origen;
+    if (u?.via) st.via = u.via;
     pintarCampos();
     pintarRecientes();
   }
@@ -377,6 +482,9 @@
   function pintarCampos() {
     $('#gOrigen').value = st.origen ? st.origen.nombre : '';
     $('#gDestino').value = st.destino ? st.destino.nombre : '';
+    $('#gVia').value = st.via ? st.via.nombre : '';
+    $('#gViaCampo').hidden = !st.via;
+    $('#gViaAnadir').hidden = Boolean(st.via);
     pintarAcciones();
   }
 
@@ -600,7 +708,9 @@
       case 'depart':
         return `Sal${por || ' hacia tu destino'}`;
       case 'arrive':
-        return p.ultimoTramo ? 'Has llegado a tu destino' : `Llegas a la gasolinera ${ruta?.parada ? ruta.parada.e.rotulo : ''}`.trim();
+        if (p.ultimoTramo) return 'Has llegado a tu destino';
+        if (ruta?.parada && Math.abs(p.maneuver.location[1] - ruta.parada.e.lat) < 0.002 && Math.abs(p.maneuver.location[0] - ruta.parada.e.lng) < 0.002) return `Llegas a la gasolinera ${ruta.parada.e.rotulo}`;
+        return st.via ? `Llegas a tu parada: ${st.via.nombre}` : 'Llegas a tu parada';
       case 'roundabout':
       case 'rotary':
         return m.exit ? `En la rotonda, toma la ${m.exit}.ª salida${por}` : `Entra en la rotonda${por}`;
@@ -631,12 +741,25 @@
     }
   }
 
+  // Compartir la ruta (o la hora de llegada si ya vas en camino)
+  function compartirRuta() {
+    const r = st.nav?.ruta || st.calc?.[st.modo] || st.calc?.normal || {};
+    let texto = `Ruta a ${st.destino.nombre}`;
+    if (st.nav) {
+      const resto = Math.max(0, st.nav.total - st.nav.kmAct);
+      const min = st.nav.ruta.min * (resto / Math.max(0.001, st.nav.total));
+      texto = `Voy de camino a ${st.destino.nombre}. Llego sobre las ${fmtHora(new Date(Date.now() + min * 60000))} (${fmtDist(resto)}).`;
+    } else if (r.min) texto += `: ${fmtMin(r.min)}, ${fmtDist(r.km)}${r.parada ? `, repostando en ${r.parada.e.rotulo} (${A().euros(r.parada.precio)} €/l)` : ''}.`;
+    A().compartirDatos({ title: 'GasoCheck · GPS', text: texto + ' Abrir la ruta:', url: enlaceGoogle(r) });
+  }
+
   function enlaceGoogle(r) {
     const u = new URL('https://www.google.com/maps/dir/');
     u.searchParams.set('api', '1');
     u.searchParams.set('origin', `${st.origen.lat},${st.origen.lng}`);
     u.searchParams.set('destination', `${st.destino.lat},${st.destino.lng}`);
-    if (r.parada) u.searchParams.set('waypoints', `${r.parada.e.lat},${r.parada.e.lng}`);
+    const paradas = [st.via, r.parada && { lat: r.parada.e.lat, lng: r.parada.e.lng }].filter(Boolean);
+    if (paradas.length) u.searchParams.set('waypoints', paradas.map((p) => `${p.lat},${p.lng}`).join('|'));
     u.searchParams.set('travelmode', 'driving');
     return u.href;
   }
@@ -647,6 +770,7 @@
     const listo = Boolean(r);
     $('#gIniciar').disabled = !listo;
     $('#gSimular').disabled = !listo;
+    $('#gCompartir').disabled = !(st.origen && st.destino);
     const g = $('#gGoogle');
     // Google Maps se puede abrir en cuanto hay origen y destino
     if (st.origen && st.destino) {
@@ -667,14 +791,6 @@
     const sel = r || st.calc.normal;
     res.innerHTML = `
       <div class="gps-tarjetas">${Object.keys(MODOS).map(tarjeta).join('')}</div>
-      ${
-        listo
-          ? `<details class="gps-pasos"><summary>Indicaciones · ${sel.pasos.length} pasos</summary><ol>${sel.pasos
-              .filter((p) => p.maneuver.type !== 'depart' || p === sel.pasos[0])
-              .map((p) => `<li><span class="gps-ico">${iconoPaso(p)}</span><span>${esc(textoPaso(p, sel))}${p.distance > 0 ? `<small>${fmtDist(p.distance / 1000)}</small>` : ''}</span></li>`)
-              .join('')}</ol></details>`
-          : ''
-      }
       <p class="texto-ayuda gps-nota">Gasto estimado con ${String(consumoBase()).replace('.', ',')} l/100 km y ${esc(app.NOMBRES[app.estado.combustible])}${st.calc.precioRef ? ` a ${app.euros(st.calc.precioRef)} €/l (media del camino)` : ''}. Los tiempos no incluyen el tráfico en tiempo real.</p>`;
     $$('.gps-tarjeta', res).forEach((b) => b.addEventListener('click', () => elegirModo(b.dataset.modo)));
     pintarAcciones();
@@ -711,7 +827,8 @@
     for (const i of st.incidentes) {
       const t = INC[i.tipo] || { n: i.nombre, e: '❗', c: '#e5484d' };
       const hace = Math.max(1, Math.round((Date.now() - i.creado) / 60000));
-      L.marker([i.lat, i.lng], { icon: L.divIcon({ className: '', html: `<div class="gps-inc" style="--c:${t.c}"><span>${t.e}</span></div>`, iconSize: [34, 34], iconAnchor: [17, 34] }), zIndexOffset: 900 })
+      panes();
+      L.marker([i.lat, i.lng], { pane: 'gpsTop', icon: L.divIcon({ className: '', html: `<div class="gps-inc" style="--c:${t.c}"><span>${t.e}</span></div>`, iconSize: [34, 34], iconAnchor: [17, 34] }), zIndexOffset: 900 })
         .bindTooltip(`${esc(t.n)} · hace ${hace >= 60 ? Math.round(hace / 60) + ' h' : hace + ' min'}${i.confirmaciones ? ` · ${i.confirmaciones} confirmación${i.confirmaciones > 1 ? 'es' : ''}` : ''}`)
         .addTo(g);
     }
@@ -853,8 +970,9 @@
       return { ...p, km: cum[mejor], texto: textoPaso(p, ruta) };
     });
     const total = cum[cum.length - 1];
-    const paradaKm = ruta.parada ? pasos.find((p) => p.maneuver.type === 'arrive' && !p.ultimoTramo)?.km ?? null : null;
-    return { ruta, cum, pasos, total, idx: 0, kmAct: 0, avisados: new Set(), fuera: 0, paradaKm, seguir: true, incKm: new Map(), incAvisados: new Set(), preguntados: new Set() };
+    const paradaKm = ruta.parada ? kmEnRuta(L_, ruta.parada.e) : null;
+    const viaKm = st.via ? kmEnRuta(L_, st.via) : null;
+    return { ruta, cum, pasos, total, viaKm, idx: 0, kmAct: 0, avisados: new Set(), fuera: 0, paradaKm, seguir: true, incKm: new Map(), incAvisados: new Set(), preguntados: new Set() };
   }
 
   // Punto de la ruta más cercano a la posición (busca alrededor del último para ir rápido)
@@ -906,9 +1024,10 @@
       el.innerHTML = `
         <div class="gps-banner" role="status" aria-live="polite">
           <span class="gps-ico grande" id="gnIco"></span>
-          <div><b id="gnDist"></b><span id="gnTexto"></span></div>
+          <div class="gps-banner-txt"><b id="gnDist"></b><span id="gnTexto"></span></div>
+          <div class="gps-luego" id="gnLuego" hidden></div>
         </div>
-        <div class="gps-luego" id="gnLuego" hidden></div>
+        <div class="gps-velocidad" id="gnVel" hidden><span class="gps-limite" id="gnLim" hidden></span><span class="gps-vel-actual"><b id="gnVelNum">0</b><small>km/h</small></span></div>
         <div class="gps-inc-chip" id="gnIncidente" hidden></div>
         <div class="gps-pregunta" id="gnPregunta" role="alert" hidden></div>
         <button type="button" class="gps-centrar" id="gnCentrar" hidden><svg aria-hidden="true"><use href="#i-diana"/></svg>Centrar</button>
@@ -924,10 +1043,12 @@
         <div class="gps-barra-nav">
           <button type="button" class="gps-salir" id="gnSalir" aria-label="Terminar navegación">✕</button>
           <div class="gps-eta"><b id="gnEta"></b><span id="gnResto"></span></div>
+          <button type="button" class="gps-voz gps-comp-nav" id="gnCompartir" aria-label="Compartir hora de llegada" title="Compartir hora de llegada"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="18" cy="5" r="2.5"/><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="19" r="2.5"/><path d="M8.2 10.8l7.6-4.4M8.2 13.2l7.6 4.4"/></svg></button>
           <button type="button" class="gps-voz" id="gnVoz" aria-pressed="true" aria-label="Voz"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9z"/><path class="ondas" d="M16 9a4 4 0 0 1 0 6M18.5 6.5a7.5 7.5 0 0 1 0 11"/></svg></button>
         </div>`;
       $('.mapa-zona').appendChild(el);
       $('#gnSalir').addEventListener('click', terminarNavegacion);
+      $('#gnCompartir').addEventListener('click', compartirRuta);
       $('#gnAvisar').addEventListener('click', abrirReporte);
       $('#gnReporteCancelar').addEventListener('click', cerrarReporte);
       $('#gnReporte').addEventListener('click', (ev) => {
@@ -955,7 +1076,32 @@
     $('#gnVoz').setAttribute('aria-pressed', String(st.nav.voz));
   }
 
-  function actualizarNav(lat, lng, rumbo) {
+  // Velocidad actual y límite del tramo (si se conoce): en rojo si vas por encima
+  function velocidad(nav, vel) {
+    const el = $('#gnVel');
+    if (vel == null && nav.prevT && nav.prevPos) {
+      const dt = (Date.now() - nav.prevT) / 3600000;
+      if (dt > 0) vel = kmEntre(nav.prevPos, nav.pos) / dt / (nav.simulada ? 15 : 1);
+    }
+    nav.prevT = Date.now();
+    nav.prevPos = nav.pos;
+    const lim = nav.ruta.limites?.[Math.max(0, nav.idx - 1)] ?? null;
+    if (vel == null && !lim) return (el.hidden = true);
+    el.hidden = false;
+    const v = vel == null ? null : Math.round(vel);
+    $('#gnVelNum').textContent = v == null ? '—' : v;
+    $('#gnLim').hidden = !lim;
+    if (lim) $('#gnLim').textContent = lim;
+    const pasado = lim && v != null && v > lim + 4;
+    el.classList.toggle('exceso', Boolean(pasado));
+    if (pasado && lim !== nav.limAvisado) {
+      nav.limAvisado = lim;
+      hablar(`Atención, límite ${lim}`);
+    }
+    if (!pasado && v != null && lim && v < lim) nav.limAvisado = null;
+  }
+
+  function actualizarNav(lat, lng, rumbo, vel) {
     const nav = st.nav;
     if (!nav) return;
     const app = A();
@@ -972,7 +1118,7 @@
       nav.kmAct = Math.max(nav.kmAct - 0.05, m.km);
     }
     // Marcador con flecha
-    if (!nav.marca) nav.marca = L.marker(p, { icon: L.divIcon({ className: '', html: '<div class="gps-flecha"><svg viewBox="0 0 24 24"><path d="M12 2l7 19-7-4-7 4z"/></svg></div>', iconSize: [40, 40], iconAnchor: [20, 20] }), interactive: false, zIndexOffset: 2000 }).addTo(app.mapa);
+    if (!nav.marca) nav.marca = L.marker(p, { pane: 'gpsTop', icon: L.divIcon({ className: '', html: '<div class="gps-flecha"><svg viewBox="0 0 24 24"><path d="M12 2l7 19-7-4-7 4z"/></svg></div>', iconSize: [40, 40], iconAnchor: [20, 20] }), interactive: false, zIndexOffset: 2000 }).addTo(app.mapa);
     nav.marca.setLatLng(p);
     if (rumbo == null && nav.prev && kmEntre(nav.prev, p) > 0.005) rumbo = Math.atan2((p[1] - nav.prev[1]) * Math.cos(p[0] * RAD), p[0] - nav.prev[0]) / RAD;
     if (rumbo != null && !Number.isNaN(rumbo)) {
@@ -993,7 +1139,8 @@
     $('#gnTexto').textContent = sig.texto;
     const luego = k >= 0 ? nav.pasos[k + 1] : null;
     $('#gnLuego').hidden = !(luego && luego.km - sig.km < 0.25);
-    if (luego) $('#gnLuego').innerHTML = `Después: <span class="gps-ico">${iconoPaso(luego)}</span>${esc(luego.texto)}`;
+    if (luego) $('#gnLuego').innerHTML = `<span class="gps-luego-et">Después</span><span class="gps-ico">${iconoPaso(luego)}</span><span class="gps-luego-txt">${esc(luego.texto)}</span>`;
+    velocidad(nav, vel);
     // Voz: aviso previo y en el momento
     const clave = k + ':';
     const previo = sig.km - nav.pasos[Math.max(0, k - 1)].km > 1.5 ? 1 : 0.4;
@@ -1024,12 +1171,16 @@
     nav.recalculando = true;
     $('#gnTexto').textContent = 'Recalculando la ruta…';
     try {
-      const puntos = [{ lat: p[0], lng: p[1] }];
-      if (nav.ruta.parada && (nav.paradaKm == null || nav.kmAct < nav.paradaKm - 0.05)) puntos.push({ lat: nav.ruta.parada.e.lat, lng: nav.ruta.parada.e.lng });
-      puntos.push(st.destino);
+      // Paradas que aún no se han pasado, en orden
+      const pendientes = [];
+      if (st.via && nav.viaKm != null && nav.kmAct < nav.viaKm - 0.05) pendientes.push({ km: nav.viaKm, p: st.via });
+      const conParada = nav.ruta.parada && (nav.paradaKm == null || nav.kmAct < nav.paradaKm - 0.05);
+      if (conParada) pendientes.push({ km: nav.paradaKm ?? Infinity, p: { lat: nav.ruta.parada.e.lat, lng: nav.ruta.parada.e.lng } });
+      pendientes.sort((a, b) => a.km - b.km);
+      const puntos = [{ lat: p[0], lng: p[1] }, ...pendientes.map((x) => x.p), st.destino];
       const [r] = await osrm(puntos, { excluir: nav.ruta.excluir });
       if (st.nav !== nav) return;
-      const nueva = prepararNav({ ...r, parada: puntos.length === 3 ? nav.ruta.parada : null });
+      const nueva = prepararNav({ ...r, parada: conParada ? nav.ruta.parada : null });
       Object.assign(nav, { ...nueva, voz: nav.voz, marca: nav.marca, watch: nav.watch, wake: nav.wake, simulada: nav.simulada, seguir: nav.seguir, pos: nav.pos, prev: nav.prev, incAvisados: nav.incAvisados, preguntados: nav.preguntados, timerInc: nav.timerInc });
       st.calc[st.modo] = { ...nav.ruta };
       pintarMapa({ encuadrar: false });
@@ -1085,7 +1236,7 @@
       return terminarNavegacion();
     }
     st.nav.watch = navigator.geolocation.watchPosition(
-      (pos) => actualizarNav(pos.coords.latitude, pos.coords.longitude, pos.coords.heading),
+      (pos) => actualizarNav(pos.coords.latitude, pos.coords.longitude, pos.coords.heading, pos.coords.speed != null && pos.coords.speed >= 0 ? pos.coords.speed * 3.6 : null),
       (e) => {
         if (e.code === 1) {
           app.avisar('Para navegar, permite el acceso a tu ubicación en el navegador.');

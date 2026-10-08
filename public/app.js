@@ -1564,20 +1564,54 @@
     return r;
   }
 
-  async function compartir(e) {
-    const url = location.href.split('#')[0] + '#e' + e.id;
-    const texto = `${e.rotulo} (${e.localidad}): ${NOMBRES[estado.combustible]} a ${euros(e.precios[estado.combustible])} €/l`;
-    try {
-      if (navigator.share) {
-        await navigator.share({ title: 'GasoCheck', text: texto, url });
-        return;
+  // Compartir con el menú del sistema; si no se puede, copia el enlace (con varios planes B para móviles)
+  async function compartirDatos({ title = 'GasoCheck', text = '', url = '' }) {
+    if (navigator.share) {
+      try {
+        await navigator.share({ title, text, url });
+        return true;
+      } catch (err) {
+        if (err && err.name === 'AbortError') return false;
+        try {
+          await navigator.share({ title, url: url || undefined, text: url ? undefined : text });
+          return true;
+        } catch (err2) {
+          if (err2 && err2.name === 'AbortError') return false;
+        }
       }
-      await navigator.clipboard.writeText(`${texto} ${url}`);
-      avisar('Enlace copiado');
-    } catch (err) {
-      if (err && err.name === 'AbortError') return;
-      avisar('No se pudo compartir. Copia el enlace de la barra de direcciones.');
     }
+    const todo = [text, url].filter(Boolean).join(' ');
+    try {
+      await navigator.clipboard.writeText(todo);
+      avisar('Enlace copiado: pégalo donde quieras.');
+      return true;
+    } catch {
+      /* sin portapapeles */
+    }
+    const ta = document.createElement('textarea');
+    ta.value = todo;
+    ta.setAttribute('readonly', '');
+    ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0;';
+    document.body.appendChild(ta);
+    ta.select();
+    ta.setSelectionRange(0, todo.length);
+    let ok = false;
+    try {
+      ok = document.execCommand('copy');
+    } catch {
+      ok = false;
+    }
+    ta.remove();
+    if (ok) avisar('Enlace copiado: pégalo donde quieras.');
+    else window.prompt('Copia este enlace para compartirlo:', todo);
+    return ok;
+  }
+
+  function compartir(e) {
+    const url = location.origin + location.pathname + '#e' + e.id;
+    const p = precio(e);
+    const texto = `${e.rotulo} (${e.localidad})${p != null ? `: ${NOMBRES[estado.combustible]} a ${euros(p)} €/l` : ''}`;
+    return compartirDatos({ title: 'GasoCheck', text: texto, url });
   }
 
   /* Calculadora: ¿cuánto cuesta llenar y compensa ir hasta aquí? */
@@ -2690,6 +2724,7 @@
       if (!visible && mapa.hasLayer(grupo)) mapa.removeLayer(grupo);
     },
     tierPrecio: (p) => tier(p),
+    compartirDatos,
     cambiarPestana, guardarLocal, pintarMiCoche: () => pintarMiCoche(), localizar: () => localizar(),
     nombreEstacion: (e) => `${e.rotulo} · ${e.localidad}`,
     // Coche y mediciones de consumo (se guardan en los ajustes, que se sincronizan con la cuenta)

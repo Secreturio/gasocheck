@@ -91,6 +91,14 @@ En local los datos se guardan en `data/almacen/` (o `data/almacen-demo/`), con l
 - **Filtro por marca**, botón **Compartir** y enlaces directos a cada gasolinera (`/#e<id>`).
 - **Modo sin conexión:** como app instalada, guarda los últimos precios y funciona sin cobertura.
 
+## Novedades de la versión 1.9: pestaña GPS
+
+- **GPS dentro de la app** (`public/gps.js`): origen y destino con buscador de direcciones (Photon / OpenStreetMap) y cuatro rutas para comparar: **normal** (la más rápida), **eficiente** (la que menos combustible gasta según la velocidad de cada tramo y el consumo de tu coche), **gasolina barata** (parada en la más barata del camino sin desviarse demasiado) y **eficiente + barata**. Botones **Iniciar**, **Google Maps** y **Simular** justo debajo de los destinos.
+- En el GPS el mapa solo muestra las gasolineras de alrededor de la ruta normal.
+- **Navegación**: indicaciones giro a giro con voz, hora de llegada, recálculo si te sales de la ruta y pantalla siempre encendida.
+- **Incidentes como en Waze** (`server/incidentes.js`): durante la navegación, el botón **Avisar** permite informar de accidentes, atascos, controles, radares móviles, obras, peligros, vehículos parados o mal tiempo. Los demás conductores los ven en su ruta, reciben un aviso por voz al acercarse y, al pasar, se les pregunta si sigue ahí; con dos «ya no está» desaparece. Caducan solos. API: `GET /api/incidentes?s=&w=&n=&e=`, `POST /api/incidentes`, `POST /api/incidentes/:id/voto`.
+- La opción «Gasolinera más barata en mi ruta» de los filtros pasa a la pestaña GPS.
+
 ## Novedades de la versión 1.8
 
 - **Editor de fotos de perfil** (`public/editor-imagen.js`): al subir una foto se abre un editor con **zoom** (slider, +/−, rueda del ratón y pellizco en el móvil), **encuadre** arrastrando, **giro** de 90° y **giro fino** (±45°), **espejo**, **brillo y contraste** y **Restablecer**. La vista previa marca el círculo que se verá en el avatar. En el móvil ocupa toda la pantalla. «Ajustar encuadre» reabre la foto actual. Es reutilizable: `EditorImagen.abrir(fichero, { titulo, salida })` devuelve un JPEG cuadrado (o `null` si se cancela).
