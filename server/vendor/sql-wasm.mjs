@@ -5,6 +5,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
+// Todo va dentro de una función: así sus nombres internos (require, __dirname, module…) no chocan
+// con los que Netlify añade al principio del paquete de la función.
+function cargarSqlJs() {
 const require = (m) => ({ fs, path, crypto })[m];
 const __dirname = '/';
 let module = { exports: {} };
@@ -200,7 +203,8 @@ else if (typeof define === 'function' && define['amd']) {
 else if (typeof exports === 'object'){
     exports["Module"] = initSqlJs;
 }
+  return module.exports;
+}
 
-
-const initSqlJsExportado = module.exports;
+const initSqlJsExportado = cargarSqlJs();
 export default initSqlJsExportado;
