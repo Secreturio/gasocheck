@@ -24,6 +24,18 @@
   };
 
   const A = () => window.GasoApp;
+  // Modo desarrollo: muestra herramientas de prueba (como «Simular»). Se activa abriendo la web con ?dev=1
+  // (se recuerda en este navegador) y se quita con ?dev=0. En tu ordenador (localhost) está siempre activo.
+  const DEV = (() => {
+    try {
+      const q = new URLSearchParams(location.search).get('dev');
+      if (q === '1') localStorage.setItem('gm.dev', '1');
+      if (q === '0') localStorage.removeItem('gm.dev');
+      return localStorage.getItem('gm.dev') === '1' || /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
+    } catch {
+      return false;
+    }
+  })();
   const st = {
     origen: null, // { nombre, lat, lng, yo? }
     destino: null,
@@ -409,11 +421,26 @@
       </div>
 
       <div class="gps-favs" id="gFavs"></div>
+      <div class="gps-lugar-ed" id="gLugarEd" hidden>
+        <h4 id="gLugarTit">Nuevo lugar</h4>
+        <label id="gLugarNombreCaja">Nombre <input id="gLugarNombre" maxlength="30" autocomplete="off" placeholder="Ej.: Gimnasio, casa de mis padres"></label>
+        <div class="gps-campo">
+          <label for="gLugarDir" class="sr">Dirección</label>
+          <input id="gLugarDir" type="search" autocomplete="off" placeholder="Busca la dirección" enterkeyhint="search" aria-controls="gSugL" aria-expanded="false">
+          <ul class="sugerencias gps-sug" id="gSugL" role="listbox" hidden></ul>
+        </div>
+        <p class="texto-ayuda" id="gLugarElegido"></p>
+        <div class="gps-lugar-acc">
+          <button type="button" class="boton primario" id="gLugarGuardar" disabled>Guardar</button>
+          <button type="button" class="boton" id="gLugarCancelar">Cancelar</button>
+          <button type="button" class="boton gps-lugar-borrar" id="gLugarBorrar">Borrar</button>
+        </div>
+      </div>
 
       <div class="gps-acciones" id="gAcciones">
         <button type="button" class="boton primario gps-iniciar" id="gIniciar" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l7 19-7-4-7 4z"/></svg>Iniciar</button>
         <a class="boton gps-google" id="gGoogle" aria-disabled="true" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg>Google Maps</a>
-        <button type="button" class="boton gps-simular" id="gSimular" disabled title="Simular el recorrido sin moverte" aria-label="Simular el recorrido"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15l12-7.5z"/></svg></button>
+        <button type="button" class="boton gps-simular" id="gSimular"${DEV ? '' : ' hidden'} disabled title="Simular el recorrido sin moverte" aria-label="Simular el recorrido"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15l12-7.5z"/></svg></button>
         <button type="button" class="boton gps-compartir" id="gCompartir" disabled title="Compartir la ruta" aria-label="Compartir la ruta"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="18" cy="5" r="2.5"/><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="19" r="2.5"/><path d="M8.2 10.8l7.6-4.4M8.2 13.2l7.6 4.4"/></svg></button>
       </div>
 
@@ -487,6 +514,22 @@
       if (st.origen && st.destino) calcular();
     });
     $('#gCompartir').addEventListener('click', compartirRuta);
+    // Editor de lugares guardados
+    conectarCampo($('#gLugarDir'), $('#gSugL'), (l) => {
+      if (!st.edLugar) return;
+      st.edLugar.elegido = { nombre: l.detalle ? `${l.nombre}, ${l.detalle}` : l.nombre, lat: l.lat, lng: l.lng };
+      $('#gLugarDir').value = st.edLugar.elegido.nombre;
+      pintarElegido();
+    });
+    $('#gLugarDir').addEventListener('input', () => {
+      if (st.edLugar) {
+        st.edLugar.elegido = null;
+        pintarElegido();
+      }
+    });
+    $('#gLugarGuardar').addEventListener('click', guardarLugar);
+    $('#gLugarCancelar').addEventListener('click', cerrarEditorLugar);
+    $('#gLugarBorrar').addEventListener('click', borrarLugar);
     $('#gYo').addEventListener('click', () => usarMiUbicacion(true));
     $('#gIniciar').addEventListener('click', () => iniciarNavegacion(false));
     $('#gSimular').addEventListener('click', () => iniciarNavegacion(true));
@@ -614,6 +657,7 @@
     let temporizador = null;
     let resultados = [];
     let activo = -1;
+    let elegidoTxt = null; // el texto que quedó al elegir; al volver a enfocar no reabre la lista
     const cerrar = () => {
       lista.hidden = true;
       input.setAttribute('aria-expanded', 'false');
@@ -629,7 +673,9 @@
         l = { nombre: 'Mi ubicación', lat: yo.lat, lng: yo.lng };
       }
       input.value = l.nombre;
+      elegidoTxt = null;
       alElegir({ nombre: l.nombre, lat: l.lat, lng: l.lng, detalle: l.detalle || '' });
+      elegidoTxt = input.value;
     };
     const pintar = () => {
       lista.innerHTML = resultados
@@ -662,7 +708,7 @@
         resultados = [{ nombre: 'Mi ubicación', detalle: 'Usar tu posición actual', yo: true }];
         activo = 0;
         pintar();
-      } else if (resultados.length && input.value) pintar();
+      } else if (resultados.length && input.value && input.value !== elegidoTxt) pintar();
     });
     input.addEventListener('keydown', (ev) => {
       if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
@@ -930,41 +976,44 @@
     window.GasoAvisos?.activarPush?.().catch(() => {});
   }
 
-  /* ---------- Casa y Trabajo + precio del día ---------- */
-  const LUGARES_FAV = { casa: { e: '🏠', n: 'Casa', clave: 'gpsCasa' }, trabajo: { e: '💼', n: 'Trabajo', clave: 'gpsTrabajo' } };
+  /* ---------- Mis lugares (Casa, Trabajo y los que quieras) + precio del día ---------- */
+  // Casa y Trabajo se guardan en ajustes.gpsCasa / gpsTrabajo (el servidor usa Casa para el precio del día);
+  // el resto en ajustes.gpsLugares = [{ id, nombre, lat, lng, dir }]. Todo se sincroniza con la cuenta.
+  const FIJOS = { casa: { e: '🏠', n: 'Casa', clave: 'gpsCasa' }, trabajo: { e: '💼', n: 'Trabajo', clave: 'gpsTrabajo' } };
+  const MAX_LUGARES = 12;
+  const misLugares = () => (A().estado.ajustes.gpsLugares || []).filter((l) => l && l.id && Number.isFinite(l.lat));
+  const lugarDe = (tipo, id) => (FIJOS[tipo] ? A().estado.ajustes[FIJOS[tipo].clave] : misLugares().find((l) => l.id === id));
+
   function pintarFavs() {
     const el = $('#gFavs');
     if (!el) return;
     const app = A();
     const a = app.estado.ajustes;
-    const chip = (k) => {
-      const f = LUGARES_FAV[k];
+    const chipFijo = (k) => {
+      const f = FIJOS[k];
       const l = a[f.clave];
       return l?.lat
-        ? `<span class="gps-fav"><button type="button" class="gps-fav-ir" data-fav="${k}" title="${esc(l.nombre)}">${f.e} ${f.n}<small id="gFavMin-${k}"></small></button><button type="button" class="gps-fav-ed" data-fav-editar="${k}" aria-label="Cambiar ${f.n}" title="Guardar el destino actual como ${f.n}">✎</button></span>`
-        : `<button type="button" class="gps-fav vacio" data-fav-editar="${k}">${f.e} Guardar ${f.n.toLowerCase()}</button>`;
+        ? `<span class="gps-fav"><button type="button" class="gps-fav-ir" data-ir="${k}" title="${esc(l.dir || l.nombre)}">${f.e} ${f.n}<small data-min="${k}"></small></button><button type="button" class="gps-fav-ed" data-editar="${k}" aria-label="Cambiar la dirección de ${f.n}" title="Cambiar la dirección">✎</button></span>`
+        : `<button type="button" class="gps-fav vacio" data-editar="${k}">${f.e} Añadir ${f.n.toLowerCase()}</button>`;
     };
+    const otros = misLugares()
+      .map((l) => `<span class="gps-fav"><button type="button" class="gps-fav-ir" data-ir="otro" data-id="${esc(l.id)}" title="${esc(l.dir || l.nombre)}">📍 ${esc(l.nombre)}<small data-min="${esc(l.id)}"></small></button><button type="button" class="gps-fav-ed" data-editar="otro" data-id="${esc(l.id)}" aria-label="Editar ${esc(l.nombre)}" title="Editar">✎</button></span>`)
+      .join('');
     const pd = a.precioDia || {};
-    el.innerHTML = `${chip('casa')}${chip('trabajo')}
+    el.innerHTML = `${chipFijo('casa')}${chipFijo('trabajo')}${otros}
+      ${misLugares().length < MAX_LUGARES ? '<button type="button" class="gps-fav vacio" data-editar="nuevo">＋ Añadir lugar</button>' : ''}
       ${a.gpsCasa?.lat ? `<label class="interruptor gps-precio-dia"><input type="checkbox" id="gPrecioDia"${pd.activo ? ' checked' : ''}><i></i>Cada mañana, avísame de la más barata cerca de casa</label>` : ''}`;
-    $$('[data-fav]', el).forEach((b) =>
+    $$('[data-ir]', el).forEach((b) =>
       b.addEventListener('click', () => {
-        st.destino = { ...a[LUGARES_FAV[b.dataset.fav].clave] };
+        const l = lugarDe(b.dataset.ir, b.dataset.id);
+        if (!l) return;
+        st.destino = { nombre: l.nombre, lat: l.lat, lng: l.lng, detalle: l.dir || '' };
         pintarCampos();
         if (st.origen) calcular();
         else usarMiUbicacion();
       })
     );
-    $$('[data-fav-editar]', el).forEach((b) =>
-      b.addEventListener('click', () => {
-        const f = LUGARES_FAV[b.dataset.favEditar];
-        if (!st.destino?.lat) return app.avisar(`Busca primero tu ${f.n.toLowerCase()} en «¿A dónde vas?» y vuelve a pulsar aquí para guardarla.`, 5000);
-        if (a[f.clave]?.lat && !confirm(`¿Guardar «${st.destino.nombre}» como ${f.n}?`)) return;
-        app.guardarAjustes({ [f.clave]: { nombre: st.destino.nombre, lat: st.destino.lat, lng: st.destino.lng } });
-        app.avisar(`${f.n}: ${st.destino.nombre}`, 3000);
-        pintarFavs();
-      })
-    );
+    $$('[data-editar]', el).forEach((b) => b.addEventListener('click', () => abrirEditorLugar(b.dataset.editar, b.dataset.id)));
     $('#gPrecioDia')?.addEventListener('change', (ev) => {
       if (ev.target.checked && !app.conSesion()) {
         ev.target.checked = false;
@@ -976,19 +1025,91 @@
         app.avisar(`Cada mañana te diremos la gasolinera con ${app.NOMBRES[app.estado.combustible]} más barata a menos de 5 km de casa.`, 5000);
       }
     });
-    // Tiempo hasta Casa y Trabajo desde donde estás
+    // Tiempo hasta cada lugar desde donde estás (como mucho 6)
     const o = st.origen?.lat ? st.origen : app.estado.yo;
     if (!o) return;
-    for (const k of Object.keys(LUGARES_FAV)) {
-      const l = a[LUGARES_FAV[k].clave];
-      if (!l?.lat || kmEntre([o.lat, o.lng], [l.lat, l.lng]) < 0.3) continue;
+    const todos = [...Object.keys(FIJOS).map((k) => [k, a[FIJOS[k].clave]]), ...misLugares().map((l) => [l.id, l])].filter(([, l]) => l?.lat).slice(0, 6);
+    for (const [k, l] of todos) {
+      if (kmEntre([o.lat, o.lng], [l.lat, l.lng]) < 0.3) continue;
       osrm([o, l], { excluir: st.opciones.evitar || '' })
         .then(([r]) => {
-          const m = $(`#gFavMin-${k}`);
+          const m = el.querySelector(`[data-min="${CSS.escape(k)}"]`);
           if (m) m.textContent = ` · ${fmtMin(r.min)}`;
         })
         .catch(() => {});
     }
+  }
+
+  // Editor de un lugar: nombre (si no es Casa ni Trabajo) y dirección buscada aquí mismo
+  function abrirEditorLugar(tipo, id) {
+    const app = A();
+    if (!app.conSesion()) return app.pedirCuenta('guardar tus lugares');
+    const ed = $('#gLugarEd');
+    const fijo = FIJOS[tipo];
+    const actual = tipo === 'nuevo' ? null : lugarDe(tipo, id);
+    st.edLugar = { tipo, id: tipo === 'otro' ? id : null, elegido: actual?.lat ? { nombre: actual.dir || actual.nombre, lat: actual.lat, lng: actual.lng } : null };
+    $('#gLugarTit').textContent = fijo ? `${fijo.e} Dirección de ${fijo.n.toLowerCase()}` : actual ? `📍 Editar «${actual.nombre}»` : '📍 Nuevo lugar';
+    $('#gLugarNombreCaja').hidden = Boolean(fijo);
+    $('#gLugarNombre').value = fijo ? fijo.n : actual?.nombre || '';
+    $('#gLugarDir').value = actual ? actual.dir || actual.nombre : '';
+    $('#gLugarBorrar').hidden = !actual;
+    pintarElegido();
+    $('#gSugL').hidden = true;
+    $('#gLugarDir').setAttribute('aria-expanded', 'false');
+    ed.hidden = false;
+    (fijo || actual ? $('#gLugarDir') : $('#gLugarNombre')).focus();
+    ed.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }
+  function pintarElegido() {
+    const e = st.edLugar?.elegido;
+    $('#gLugarElegido').textContent = e ? `✔ ${e.nombre}` : 'Escribe la dirección y elige una de las sugerencias.';
+    $('#gLugarElegido').classList.toggle('ok', Boolean(e));
+    $('#gLugarGuardar').disabled = !e;
+  }
+  function cerrarEditorLugar() {
+    st.edLugar = null;
+    $('#gSugL').hidden = true;
+    $('#gLugarEd').hidden = true;
+  }
+  function guardarLugar() {
+    const app = A();
+    const ed = st.edLugar;
+    if (!ed?.elegido) return;
+    const dir = ed.elegido.nombre;
+    if (FIJOS[ed.tipo]) {
+      app.guardarAjustes({ [FIJOS[ed.tipo].clave]: { nombre: FIJOS[ed.tipo].n, dir, lat: ed.elegido.lat, lng: ed.elegido.lng } });
+      app.avisar(`${FIJOS[ed.tipo].n}: ${dir}`, 3000);
+    } else {
+      const nombre = $('#gLugarNombre').value.trim().slice(0, 30);
+      if (!nombre) {
+        $('#gLugarNombre').focus();
+        return app.avisar('Ponle un nombre al lugar (por ejemplo «Gimnasio»).');
+      }
+      const lista = misLugares();
+      const nuevo = { id: ed.id || Math.random().toString(36).slice(2, 10), nombre, dir, lat: ed.elegido.lat, lng: ed.elegido.lng };
+      const i = lista.findIndex((l) => l.id === nuevo.id);
+      if (i >= 0) lista[i] = nuevo;
+      else lista.push(nuevo);
+      app.guardarAjustes({ gpsLugares: lista.slice(0, MAX_LUGARES) });
+      app.avisar(`Guardado: ${nombre}`, 3000);
+    }
+    cerrarEditorLugar();
+    pintarFavs();
+  }
+  function borrarLugar() {
+    const app = A();
+    const ed = st.edLugar;
+    if (!ed) return;
+    if (FIJOS[ed.tipo]) {
+      if (!confirm(`¿Borrar la dirección de ${FIJOS[ed.tipo].n.toLowerCase()}?`)) return;
+      app.guardarAjustes({ [FIJOS[ed.tipo].clave]: null, ...(ed.tipo === 'casa' ? { precioDia: { ...(app.estado.ajustes.precioDia || {}), activo: false } } : {}) });
+    } else {
+      const l = lugarDe('otro', ed.id);
+      if (!confirm(`¿Borrar «${l?.nombre || 'este lugar'}»?`)) return;
+      app.guardarAjustes({ gpsLugares: misLugares().filter((x) => x.id !== ed.id) });
+    }
+    cerrarEditorLugar();
+    pintarFavs();
   }
 
   /* ---------- Resumen al llegar y sitios cerca del destino ---------- */
@@ -1007,7 +1128,7 @@
       el = document.createElement('div');
       el.id = 'gpsFin';
       el.className = 'gps-fin';
-      $('.mapa-zona').appendChild(el);
+      document.body.appendChild(el);
     }
     el.innerHTML = `<div class="gps-fin-caja" role="dialog" aria-labelledby="gFinTit">
       <h3 id="gFinTit">🏁 Has llegado${destino ? ` a ${esc(destino.nombre)}` : ''}</h3>

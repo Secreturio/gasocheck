@@ -2554,7 +2554,7 @@ button.gps-fav.vacio { padding: 8px 14px; border-style: dashed; color: var(--tex
 .gps-directo button { border: 0; border-radius: 999px; background: rgba(255,255,255,.18); color: #fff; padding: 6px 12px; font-weight: 700; cursor: pointer; }
 
 /* Resumen al llegar */
-.gps-fin { position: absolute; inset: 0; z-index: 1001; display: flex; align-items: flex-end; justify-content: center; background: rgba(0,0,0,.45); }
+.gps-fin { position: fixed; inset: 0; z-index: 2400; display: flex; align-items: flex-end; justify-content: center; background: rgba(0,0,0,.45); }
 .gps-fin-caja { width: 100%; max-width: 520px; max-height: 88%; overflow-y: auto; margin: 0 12px 12px; padding: 18px; border-radius: 18px; background: var(--superficie); border: 1px solid var(--linea); box-shadow: var(--sombra); display: flex; flex-direction: column; gap: 12px; }
 .gps-fin-caja h3 { margin: 0; font-size: 20px; }
 .gps-fin-caja h4 { margin: 4px 0 0; font: 600 12px/1.3 var(--f-texto); letter-spacing: .08em; text-transform: uppercase; color: var(--texto-suave); }
@@ -2617,3 +2617,16 @@ body.gps-grande .gps-banner .gps-luego span { font-size: 16px; }
 .gps-extras { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; padding-top: 18px; border-top: 1px solid var(--linea-fuerte); }
 #gExtrasRes { display: flex; flex-direction: column; gap: 10px; }
 #gExtrasRes:empty { display: none; }
+
+/* Editor de lugares guardados */
+.gps-lugar-ed { display: flex; flex-direction: column; gap: 10px; padding: 12px; border: 1px solid var(--acento); border-radius: 14px; background: color-mix(in srgb, var(--acento) 8%, var(--superficie-2)); }
+.gps-lugar-ed h4 { margin: 0; font-size: 15px; }
+.gps-lugar-ed label:not(.sr) { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--texto-suave); }
+.gps-lugar-ed #gLugarNombre { height: 44px; padding: 0 12px; border: 1px solid var(--linea); border-radius: 10px; background: var(--superficie); font-size: 16px; color: var(--texto); }
+.gps-lugar-ed .gps-campo input { padding-right: 12px; }
+.gps-lugar-ed #gLugarElegido { min-height: 0; }
+.gps-lugar-ed #gLugarElegido.ok { color: var(--barato); }
+.gps-lugar-acc { display: flex; gap: 8px; flex-wrap: wrap; }
+.gps-lugar-acc .boton { min-height: 42px; }
+.gps-lugar-borrar { margin-left: auto; color: var(--caro) !important; }
+#gAcciones .gps-simular[hidden] { display: none !important; }
