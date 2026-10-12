@@ -1,1 +1,26 @@
-
+name: Migrar datos de Netlify
+# Copia los datos (cuentas, valoraciones, fotos…) del proyecto antiguo de Netlify al nuevo.
+# Se lanza a mano: pestaña Actions → «Migrar datos de Netlify» → Run workflow.
+on:
+  workflow_dispatch:
+    inputs:
+      prueba:
+        description: 'Solo contar los datos, sin copiar nada'
+        type: boolean
+        default: true
+jobs:
+  migrar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --no-save @netlify/blobs@11
+      - run: node scripts/migrar-blobs.mjs
+        env:
+          PRUEBA: ${{ inputs.prueba && '1' || '0' }}
+          NETLIFY_TOKEN_VIEJO: ${{ secrets.NETLIFY_TOKEN_VIEJO }}
+          SITE_ID_VIEJO: ${{ secrets.SITE_ID_VIEJO }}
+          NETLIFY_TOKEN_NUEVO: ${{ secrets.NETLIFY_TOKEN_NUEVO }}
+          SITE_ID_NUEVO: ${{ secrets.SITE_ID_NUEVO }}
