@@ -381,3 +381,15 @@ La web está hecha para ser el código común de todas las plataformas:
 - **Mapa base:** se usan los mosaicos gratuitos de OpenStreetMap (sin clave). Su política de uso los permite para tráfico moderado; si GasoCheck crece mucho, pasa a un proveedor con plan gratuito y clave (p. ej. MapTiler) definiendo `window.GASOCHECK_TESELAS` en `index.html` (ver comentario en `app.js`).
 - **Texto legal:** rellena `public/legal.js`. Está preparado para publicarla **como particular, sin empresa ni alta de autónomo**: solo son obligatorios tu nombre, un correo de contacto y el alojamiento; el NIF y el domicilio son opcionales y no se muestran si los dejas vacíos. Es recomendable que un abogado revise los textos antes del lanzamiento, sobre todo las condiciones para gasolineras.
 - **Aviso legal:** los precios son datos abiertos del Ministerio y su reutilización exige citar la fuente (ya se muestra en la cabecera). Las valoraciones son opiniones de usuarios: conviene unas condiciones de uso y un canal para que las gasolineras puedan responder.
+
+## Pasar los datos a otro proyecto de Netlify
+
+Los datos (cuentas, valoraciones, fotos, facturas, historial…) viven en Netlify Blobs, dentro del proyecto.
+Para copiarlos a otro proyecto (por ejemplo, en otra cuenta) usa la acción de GitHub **Migrar datos de Netlify**
+(`.github/workflows/migrar.yml`, que ejecuta `scripts/migrar-blobs.mjs`):
+
+1. En GitHub → **Settings → Secrets and variables → Actions**, crea `NETLIFY_TOKEN_VIEJO`, `SITE_ID_VIEJO`,
+   `NETLIFY_TOKEN_NUEVO` y `SITE_ID_NUEVO` (token: Netlify → User settings → Applications → Personal access tokens;
+   Site ID: Project configuration → General → Project ID).
+2. **Actions → Migrar datos de Netlify → Run workflow**: primero con «prueba» marcado (solo cuenta) y luego sin marcar (copia).
+3. Al terminar, borra los tokens en Netlify y los secretos en GitHub.
