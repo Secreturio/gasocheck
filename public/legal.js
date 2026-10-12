@@ -6,7 +6,7 @@
 window.LEGAL = {
   // GasoCheck se publica como proyecto personal, gratuito y sin ánimo de lucro de una persona física.
   titular: 'Antonio Fernández González-Haba', // OBLIGATORIO. Tu nombre y apellidos. Ej.: 'Antonio Pérez García'
-  email: 'gasochecklegal@gmail.com', // OBLIGATORIO. Correo de contacto y para ejercer derechos de privacidad (mejor uno solo para GasoCheck)
+  email: 'gasocheck2026@gmail.com', // OBLIGATORIO. Correo de contacto y para ejercer derechos de privacidad (mejor uno solo para GasoCheck)
   nif: '',                // OPCIONAL. Si lo dejas vacío no se muestra
   domicilio: '',          // OPCIONAL. Si lo dejas vacío no se muestra (basta con el correo de contacto)
   registro: '',           // Solo si algún día lo gestiona una sociedad. Déjalo vacío
