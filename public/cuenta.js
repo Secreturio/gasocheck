@@ -107,8 +107,8 @@
     const igual = (a, b) => JSON.stringify(a) === JSON.stringify(b);
     const out = {};
     for (const k of new Set([...Object.keys(local), ...Object.keys(remoto)])) {
-      if (k === 'coches') {
-        out.coches = combinarLista(base?.coches, local.coches || [], remoto.coches || [], (x) => x.id);
+      if (k === 'coches' || k === 'mantenimientos') {
+        out[k] = combinarLista(base?.[k], local[k] || [], remoto[k] || [], (x) => x.id);
         continue;
       }
       const tieneR = Object.prototype.hasOwnProperty.call(remoto, k);

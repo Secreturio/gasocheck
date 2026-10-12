@@ -2106,6 +2106,7 @@
       ['datos', 'Datos del coche', '<path d="M4 16.5v-4.5l2-5h12l2 5v4.5z"/><circle cx="7.5" cy="16.5" r="1.8"/><circle cx="16.5" cy="16.5" r="1.8"/><path d="M4 12h16"/>'],
       ['consumo', 'Consumo', '<path d="M4 18a8 8 0 1 1 16 0"/><path d="M12 18l4-6"/>'],
       ['gastos', 'Gastos', '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>'],
+      ['mantenimiento', 'Mantenimiento', '<path d="M14.7 6.3a4.5 4.5 0 0 0-5.9 5.9L3.5 17.5a2 2 0 0 0 2.9 2.9l5.3-5.3a4.5 4.5 0 0 0 5.9-5.9l-2.7 2.7-2.4-.5-.5-2.4z"/>'],
       ['descuentos', 'Descuentos', '<path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="8" r="1.5"/>'],
       conEmpresa && ['empresa', 'Empresa', '<rect x="4" y="3" width="16" height="18" rx="1"/><path d="M8 7h2M14 7h2M8 11h2M14 11h2M10 21v-4h4v4"/>'],
     ].filter(Boolean);
@@ -2144,6 +2145,7 @@
             ${an.consumoMedio ? '' : '<p class="texto-ayuda">Para calcular tu consumo real, apunta los kilómetros y marca “depósito lleno” en al menos dos repostajes.</p>'}
             ${anomalias}
             <div class="acciones"><button type="button" class="boton primario" id="irApuntar">⛽ Apuntar repostaje</button><button type="button" class="boton" id="irRepostajes">Ver mis repostajes</button></div>`)}
+          ${ap('mantenimiento', '<div id="mcMant" class="mt"></div>', 'apartado-tarjetas')}
           ${ap('descuentos', `<h3 class="apartado-tit">Mis descuentos</h3>
             ${reglas}
             <form id="fRegla" class="form-linea" novalidate>
@@ -2198,6 +2200,7 @@
     }));
     GasoCoches.pintarGestor($('#mcGestor'), { conGaleria: false, alCambiar: pintarMiCoche });
     GasoCoches.pintarConsumo($('#mcMediciones'), { alCambiar: pintarMiCoche });
+    window.GasoMantenimiento?.pintar($('#mcMant'));
     activarMiCoche();
     pintarMiEmpresa();
   }
