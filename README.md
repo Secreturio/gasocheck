@@ -33,7 +33,7 @@ npx netlify-cli deploy --build --prod
 |---|---|---|
 | `ADMIN_TOKEN` | Recomendada | Clave larga para entrar en `/admin.html` (moderación). Sin ella, la moderación está desactivada. |
 | `REPORT_SALT` | Recomendada | Cualquier cadena secreta: se usa para anonimizar las IPs de las valoraciones. |
-| `RESEND_API_KEY` y `CORREO_REMITENTE` | Para enviar correos | Verificar la cuenta y recuperar la contraseña (p. ej. `GasoCheck <hola@gasocheck.es>`). Sin ellas, los correos se escriben en el registro de la función (**Logs → Functions → api**). |
+| `BREVO_API_KEY` y `CORREO_REMITENTE` | Para enviar correos | Verificar la cuenta y recuperar la contraseña (p. ej. `GasoCheck <gasocheck2026@gmail.com>`, remitente verificado en Brevo). También vale `RESEND_API_KEY` si tienes dominio propio. Sin ellas, los correos se escriben en el registro de la función (**Logs → Functions → api**). |
 | `APP_URL` | Opcional | Dirección pública para los enlaces de los correos. Si no la pones se usa la de Netlify (o tu dominio principal). |
 | `VAPID_PUBLICA` y `VAPID_PRIVADA` | Opcional | Claves de notificaciones push. Si no las pones se generan solas y se guardan en Blobs. |
 | `PUSH_CONTACTO` | Opcional | `mailto:` de contacto para los servicios push. |
@@ -270,7 +270,7 @@ Una gasolinera no puede valorar gasolineras.
 - la información básica de protección de datos junto al formulario;
 - la versión de las condiciones aceptadas y su fecha, que se guardan como prueba del consentimiento.
 
-**Correos:** con `RESEND_API_KEY` y `CORREO_REMITENTE` se envían de verdad con [Resend](https://resend.com). Sin ellas, se muestran en el registro de la función de Netlify (**Logs → Functions → api**) o en la consola en local; desde ahí puedes copiar los enlaces de verificación.
+**Correos:** con `BREVO_API_KEY` y `CORREO_REMITENTE` se envían de verdad con [Brevo](https://brevo.com) (gratis hasta 300 al día). Con dominio propio también sirve `RESEND_API_KEY` ([Resend](https://resend.com)). Sin ellas, se muestran en el registro de la función de Netlify (**Logs → Functions → api**) o en la consola en local; desde ahí puedes copiar los enlaces de verificación.
 
 ## Estructura
 
