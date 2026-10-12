@@ -3,14 +3,16 @@
 // y se borran al borrar el repostaje o la cuenta.
 
 const MAX_BYTES = 900 * 1024; // tras la compresión en el móvil suelen ocupar 150–400 KB
+const MAX_PDF = 3 * 1024 * 1024; // facturas del taller en PDF (no se comprimen)
 const MAX_FOTOS = 500; // por cuenta
 const ID = /^[A-Za-z0-9_-]{6,40}$/;
-const TIPOS = { 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/png': 'png' };
+const TIPOS = { 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/png': 'png', 'application/pdf': 'pdf' };
 const DE_EXT = Object.fromEntries(Object.entries(TIPOS).map(([t, e]) => [e, t]));
 const FIRMAS = {
   'image/jpeg': (b) => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff,
   'image/png': (b) => b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47,
   'image/webp': (b) => b.subarray(0, 4).toString() === 'RIFF' && b.subarray(8, 12).toString() === 'WEBP',
+  'application/pdf': (b) => b.subarray(0, 5).toString() === '%PDF-',
 };
 const fallo = (status, error) => ({ status, error });
 
@@ -25,10 +27,10 @@ export function crearFotos(almacen) {
     // datos: "data:image/jpeg;base64,…"
     async guardar(u, id, datos) {
       if (!ID.test(String(id || ''))) return fallo(400, 'Identificador de foto no válido.');
-      const m = String(datos || '').match(/^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/);
-      if (!m) return fallo(400, 'La foto debe ser JPEG, PNG o WebP.');
+      const m = String(datos || '').match(/^data:(image\/(?:jpeg|png|webp)|application\/pdf);base64,([A-Za-z0-9+/=]+)$/);
+      if (!m) return fallo(400, 'El archivo debe ser una foto (JPEG, PNG o WebP) o un PDF.');
       const buf = Buffer.from(m[2], 'base64');
-      if (buf.length > MAX_BYTES) return fallo(413, 'La foto es demasiado grande.');
+      if (buf.length > (m[1] === 'application/pdf' ? MAX_PDF : MAX_BYTES)) return fallo(413, m[1] === 'application/pdf' ? 'El PDF es demasiado grande (máximo 3 MB).' : 'La foto es demasiado grande.');
       if (!FIRMAS[m[1]](buf)) return fallo(400, 'El archivo no es una imagen válida.');
       const existe = await buscar(u.id, id);
       if (!existe && (await almacen.listar(dirDe(u.id))).length >= MAX_FOTOS) return fallo(429, `Puedes guardar como mucho ${MAX_FOTOS} fotos de tickets.`);

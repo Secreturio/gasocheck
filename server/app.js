@@ -309,7 +309,7 @@ export async function crearApp({ almacen, demo = false, appUrl = '' }) {
       return binario(f.datos, f.tipo, 'public, max-age=604800');
     }],
     // ---- Fotos de tickets de "Mis repostajes" y de perfil (privadas) ----
-    ['PUT', /^\/api\/cuenta\/fotos\/([^/]+)$/, { sesion: 'obligatoria', cuerpo: 1300 * 1024 }, async (c) => {
+    ['PUT', /^\/api\/cuenta\/fotos\/([^/]+)$/, { sesion: 'obligatoria', cuerpo: 4200 * 1024 }, async (c) => {
       const r = await fotos.guardar(c.usuario, c.p[0], c.body.datos);
       return r.error ? error(r.status, r.error) : r;
     }],
