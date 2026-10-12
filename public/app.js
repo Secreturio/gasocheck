@@ -885,7 +885,7 @@
     const antes = document.body.classList.contains('pagina-completa');
     document.body.classList.toggle('pagina-completa', completa);
     document.body.dataset.pagina = p;
-    $('#tituloPagina').hidden = !(p === 'repostajes' || p === 'micoche');
+    $('#tituloPagina').hidden = p !== 'micoche'; // Mis repostajes lleva su propia cabecera
     if (completa) {
       $('#tituloPagina').textContent = p === 'repostajes' ? 'Mis repostajes' : 'Mi coche';
       $('#panel').scrollTop = 0;
@@ -1083,7 +1083,26 @@
   const panel = $('#panel');
   const asa = $('#asa');
   const esMovil = () => matchMedia('(max-width: 760px)').matches;
-  const ALTURAS = ['minimo', 'bajo', 'medio', 'alto'];
+  // Mis repostajes y Mi coche: diseño de ordenador solo en pantallas grandes con ratón; tableta = estilo móvil
+  const estiloPC = () => matchMedia('(min-width: 1181px) and (hover: hover)').matches;
+  const svg = (d) => `<svg class="ic" viewBox="0 0 24 24" aria-hidden="true">${d}</svg>`;
+  const ICO = {
+    calendario: svg('<rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M8 3v4M16 3v4M3.5 10h17"/>'),
+    barras: svg('<path d="M6 20V12M12 20V5M18 20v-9"/>'),
+    gota: svg('<path d="M12 3.5c3 3.6 6 7.3 6 10.6a6 6 0 0 1-12 0c0-3.3 3-7 6-10.6z"/>'),
+    surtidor: svg('<path d="M4.5 20.5v-14A2.5 2.5 0 0 1 7 4h5a2.5 2.5 0 0 1 2.5 2.5v14M3 20.5h13M7.5 10h4M14.5 11h1.8a1.7 1.7 0 0 1 1.7 1.7v3.6a1.5 1.5 0 0 0 3 0V9l-2.5-2.5"/>'),
+    monedas: svg('<ellipse cx="9" cy="6.5" rx="5.5" ry="2.5"/><path d="M3.5 6.5v4c0 1.4 2.5 2.5 5.5 2.5s5.5-1.1 5.5-2.5v-4M3.5 10.5v4c0 1.4 2.5 2.5 5.5 2.5"/><ellipse cx="15" cy="14.5" rx="5.5" ry="2.5"/><path d="M9.5 14.5v3.5c0 1.4 2.5 2.5 5.5 2.5s5.5-1.1 5.5-2.5v-3.5"/>'),
+    etiqueta: svg('<path d="M3.5 12.2V4.5a1 1 0 0 1 1-1h7.7l8.3 8.3a1.5 1.5 0 0 1 0 2.1l-6.6 6.6a1.5 1.5 0 0 1-2.1 0z"/><circle cx="8" cy="8" r="1.5"/>'),
+    pin: svg('<path d="M12 21s-6.5-6-6.5-11a6.5 6.5 0 0 1 13 0c0 5-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.3"/>'),
+    camara: svg('<path d="M4 8h3l1.6-2.5h6.8L17 8h3a1 1 0 0 1 1 1v9.5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13.3" r="3.6"/>'),
+    ticket: svg('<path d="M6 3h12v18l-2-1.5-2 1.5-2-1.5-2 1.5-2-1.5L6 21z"/><path d="M9 8h6M9 12h6M9 16h3"/>'),
+    papelera: svg('<path d="M4 7h16M10 3.5h4M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13M10 11v6M14 11v6"/>'),
+    chevron: svg('<path d="M6 15l6-6 6 6"/>'),
+    hoja: svg('<path d="M6 2.5h8.5L19 7v13.5a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-17a1 1 0 0 1 1-1z"/><path d="M14 2.5V7h5M8.5 11h7v7h-7zM8.5 14.5h7M12 11v7"/>'),
+    flecha: svg('<path d="M5 12h14M13 6l6 6-6 6"/>'),
+    bombilla: svg('<path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.6 10.8c.7.6 1.1 1.3 1.1 2.2h5c0-.9.4-1.6 1.1-2.2A6 6 0 0 0 12 3z"/><path d="M4 4l1 1M20 4l-1 1M2 11h1.2M20.8 11H22"/>'),
+    mas: svg('<path d="M12 5v14M5 12h14"/>'),
+  };  const ALTURAS = ['minimo', 'bajo', 'medio', 'alto'];
   // Altura exacta de "minimo": asa + combustibles + caja de búsqueda (se mide, así vale para cualquier tamaño de pantalla)
   function medirMinimo() {
     const vb = $('#vBuscar');
@@ -2090,7 +2109,7 @@
       ['descuentos', 'Descuentos', '<path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="8" r="1.5"/>'],
       conEmpresa && ['empresa', 'Empresa', '<rect x="4" y="3" width="16" height="18" rx="1"/><path d="M8 7h2M14 7h2M8 11h2M14 11h2M10 21v-4h4v4"/>'],
     ].filter(Boolean);
-    const ap = (id, cuerpo) => `<section class="apartado" data-mc="${id}" role="tabpanel" aria-labelledby="mc-${id}" ${apartadoMC === id ? '' : 'hidden'}>${cuerpo}</section>`;
+    const ap = (id, cuerpo, clase = '') => `<section class="apartado${clase ? ' ' + clase : ''}" data-mc="${id}" role="tabpanel" aria-labelledby="mc-${id}" ${apartadoMC === id ? '' : 'hidden'}>${cuerpo}</section>`;
     const nombreAct = act ? esc(GasoCoches.nombre(act)) : '';
 
     el.innerHTML = `
@@ -2108,10 +2127,10 @@
         </div>
         <div class="perfil-contenido">
           ${ap('datos', `<h3 class="apartado-tit">${coches.length ? 'Datos del coche' : 'Añade tu coche'}</h3><div id="mcGestor"></div>`)}
-          ${ap('consumo', `<h3 class="apartado-tit">Consumo${act ? ' · ' + nombreAct : ''}</h3>
+          ${ap('consumo', `<h3 class="apartado-tit cs-tarjeta cs-titulo"><span class="cs-ico grande">${ICO.surtidor}</span><span>Consumo${act ? ' · ' + nombreAct : ''}</span></h3>
             <div id="mcMediciones"></div>
-            <div class="bloque-perfil">
-              <h4>Calculadora de ahorro</h4>
+            <div class="bloque-perfil cs-tarjeta cs-ahorro">
+              <div class="cs-cab"><span class="cs-ico grande">${ICO.monedas}</span><h4>Calculadora de ahorro <span>Se usa en la ficha de cada gasolinera</span></h4></div>
               <div class="calc-campos">
                 <label for="mcLitros">Litros que sueles echar<input id="mcLitros" inputmode="decimal" value="${String(estado.ajustes.litros).replace('.', ',')}"></label>
                 <label for="mcConsumo">Consumo (l/100 km)<input id="mcConsumo" inputmode="decimal" value="${String(estado.ajustes.consumo).replace('.', ',')}"></label>
@@ -2119,8 +2138,7 @@
               ${an.consumoMedio && Math.abs(an.consumoMedio - estado.ajustes.consumo) >= 0.1
                 ? `<button type="button" class="boton" id="usarReal">Usar mi consumo real según mis repostajes (${num1(an.consumoMedio)} l/100 km)</button>`
                 : ''}
-              <p class="texto-ayuda">Se usan en la calculadora de ahorro de cada gasolinera.</p>
-            </div>`)}
+            </div>`, 'apartado-tarjetas')}
           ${ap('gastos', `<h3 class="apartado-tit">Gastos${act && coches.length > 1 ? ' · ' + nombreAct : ''}</h3>
             ${tiles}
             ${an.consumoMedio ? '' : '<p class="texto-ayuda">Para calcular tu consumo real, apunta los kilómetros y marca “depósito lleno” en al menos dos repostajes.</p>'}
@@ -2186,6 +2204,7 @@
 
   /* ---------- Mis repostajes: por año, mes y día, con la foto del ticket ---------- */
   const DIAS_SEM = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'];
+
   const capital = (t) => t.charAt(0).toUpperCase() + t.slice(1);
   const sumar = (xs) => {
     const conImporte = xs.filter((x) => x.importe > 0);
@@ -2232,51 +2251,74 @@
     const fila = (x) => {
       const f = new Date(x.fecha + 'T12:00:00');
       const est = x.estacion && estado.porId.get(x.estacion);
-      return `<li class="repo" data-entrada="${esc(x.id)}">
-        <button type="button" class="miniatura" data-foto="${esc(x.id)}" ${x.foto ? '' : 'hidden'} aria-label="Ver la foto del ticket del ${f.toLocaleDateString('es-ES')}"><img alt="" data-cargar="${esc(x.foto || '')}"></button>
-        <div class="repo-cuerpo">
-          <div class="repo-cab"><b>${DIAS_SEM[f.getDay()]} ${f.getDate()}</b><span>${esc(x.nombre || 'Gasolinera sin indicar')}</span></div>
-          <div class="repo-cifras"><span><b>${euros(x.litros, 2)}</b> L</span><span><b>${x.importe ? euros(x.importe, 2) : '—'}</b> €</span>${x.importe ? `<span class="pl">${euros(x.importe / x.litros)} €/l</span>` : ''}</div>
-          <div class="repo-meta">${varios && cocheDe(x) ? `<span class="repo-coche">${esc(GasoCoches.nombre(cocheDe(x)))}</span> · ` : ''}${esc(NOMBRES[x.combustible] || '')}${x.km ? ` · ${x.km.toLocaleString('es-ES')} km` : ''}${x.lleno ? ' · <span class="lleno">Lleno</span>' : ''}${x.empresa ? ' · <span class="lleno">Empresa</span>' : ''}</div>
-          <div class="repo-acc">
-            ${est ? `<button type="button" class="enlace" data-id="${esc(est.id)}">Ver gasolinera</button>` : ''}
-            <label class="enlace" for="foto-${esc(x.id)}">${x.foto ? 'Cambiar foto' : '📷 Añadir foto del ticket'}</label>
-            <input type="file" id="foto-${esc(x.id)}" class="sr" accept="image/*" data-subir="${esc(x.id)}">
-            <button type="button" class="enlace texto-peligro" data-borrar-entrada="${esc(x.id)}">Borrar</button>
-          </div>
+      const coche = varios && cocheDe(x);
+      const meta = [
+        `${ICO.surtidor}<b>${esc(NOMBRES[x.combustible] || 'Combustible')}</b>`,
+        x.lleno ? '<span>Lleno</span>' : '',
+        x.km ? `<span>${x.km.toLocaleString('es-ES')} km</span>` : '',
+        coche ? `<span class="repo-coche">${esc(GasoCoches.nombre(coche))}</span>` : '',
+        x.empresa ? '<span class="rp-etq">Empresa</span>' : '',
+      ].filter(Boolean).join('<i class="rp-punto">·</i>');
+      return `<li class="rp-item" data-entrada="${esc(x.id)}">
+        <div class="rp-dia"><span>${capital(DIAS_SEM[f.getDay()])}</span><b>${f.getDate()}</b><span>${MESES[f.getMonth()].slice(0, 3).toUpperCase()}</span></div>
+        <p class="rp-donde">${ICO.pin}<span>${esc(x.nombre || 'Gasolinera sin indicar')}</span></p>
+        <div class="rp-cifras">
+          <div><b>${euros(x.litros, 2)}<small> L</small></b><span>Litros</span></div>
+          <div><b>${x.importe ? euros(x.importe, 2) : '—'}<small> €</small></b><span>Importe</span></div>
+          <div><b>${x.importe ? euros(x.importe / x.litros) : '—'}<small> €/l</small></b><span>Precio</span></div>
+        </div>
+        <p class="rp-meta">${meta}</p>
+        <div class="rp-acc">
+          ${est ? `<button type="button" class="rp-btn" data-id="${esc(est.id)}">${ICO.pin}<span>Ver gasolinera</span></button>` : ''}
+          ${x.foto
+            ? `<button type="button" class="rp-btn" data-foto="${esc(x.id)}">${ICO.ticket}<span>Ver ticket</span></button>
+               <label class="rp-btn" for="foto-${esc(x.id)}" title="Cambiar la foto del ticket">${ICO.camara}<span>Cambiar foto</span></label>`
+            : `<label class="rp-btn" for="foto-${esc(x.id)}">${ICO.camara}<span>Añadir foto del ticket</span></label>`}
+          <input type="file" id="foto-${esc(x.id)}" class="sr" accept="image/*" data-subir="${esc(x.id)}">
+          <button type="button" class="rp-btn peligro" data-borrar-entrada="${esc(x.id)}">${ICO.papelera}<span>Borrar</span></button>
         </div></li>`;
     };
 
-    let primerMes = true;
+    // Un resumen por año y debajo sus meses (los del año más reciente, abiertos)
+    const resumenAnio = (a, t) => `<section class="rp-tarjeta rp-resumen">
+        <div class="rp-resumen-cab"><span class="rp-ico grande">${ICO.barras}</span><div><b>${a}</b><span>Resumen de tus repostajes</span></div></div>
+        <div class="rp-stats">
+          <div><span class="rp-ico">${ICO.gota}</span><p><b>${t.n}</b><span>${t.n === 1 ? 'repostaje' : 'repostajes'}</span></p></div>
+          <div><span class="rp-ico">${ICO.surtidor}</span><p><b>${euros(t.litros, 1)}<small> L</small></b><span>litros en total</span></p></div>
+          <div><span class="rp-ico">${ICO.monedas}</span><p><b>${euros(t.euros, 2)}<small> €</small></b><span>importe total</span></p></div>
+          <div class="rp-stat-pc"><span class="rp-ico">${ICO.etiqueta}</span><p><b>${t.media ? euros(t.media) : '—'}<small> €/l</small></b><span>precio medio</span></p></div>
+        </div>
+      </section>`;
     const grupos = [...anios].map(([a, meses], i) => {
       const todosAnio = [...meses.values()].flat();
-      return `<details class="anio" ${i === 0 ? 'open' : ''}>
-        <summary><span class="anio-num">${a}</span><span class="grupo-cifras">${cifras(sumar(todosAnio))}</span></summary>
+      return `${resumenAnio(a, sumar(todosAnio))}
         ${[...meses].map(([m, xs]) => {
           const t = sumar(xs);
-          const abierto = primerMes;
-          primerMes = false;
-          return `<details class="mes" ${abierto ? 'open' : ''}>
-            <summary><span class="mes-nombre">${capital(MESES[+m.slice(5) - 1])}</span><span class="grupo-cifras">${cifras(t)}${t.media ? ` · ${euros(t.media)} €/l` : ''}</span></summary>
-            <ol class="repostajes">${xs.map(fila).join('')}</ol>
+          return `<details class="rp-tarjeta rp-mes" ${i === 0 ? 'open' : ''}>
+            <summary><span class="rp-ico">${ICO.calendario}</span><span class="rp-mes-nombre">${MESES[+m.slice(5) - 1]}${i ? ` <small>${a}</small>` : ''}</span><span class="rp-mes-cifras">${t.n} ${t.n === 1 ? 'repostaje' : 'repostajes'} · ${euros(t.litros, 1)} L · ${euros(t.euros, 2)} €</span><span class="rp-chevron">${ICO.chevron}</span></summary>
+            <ol class="rp-lista">${xs.map(fila).join('')}</ol>
           </details>`;
-        }).join('')}
-      </details>`;
+        }).join('')}`;
     }).join('');
 
     const elegido = filtroCocheRepos || estado.ajustes.cocheActivo || coches[0]?.id || '';
-    // Ordenador: formulario fijo a la izquierda; a la derecha los coches y debajo la lista.
-    // Móvil: el formulario arriba, plegable.
-    const formAbierto = !esMovil() || abrirFormulario || abiertoAntes || !estado.diario.length;
+    // Ordenador: formulario fijo a la izquierda y la lista a la derecha.
+    // Móvil y tableta: el formulario se abre con «Apuntar» en la cabecera.
+    const formAbierto = estiloPC() || abrirFormulario || abiertoAntes || !estado.diario.length;
     el.innerHTML = `
-     <div class="repos-layout">
+     <header class="rp-tarjeta rp-cab">
+       <span class="rp-ico grande">${ICO.calendario}</span>
+       <h2>Mis repostajes${cocheFiltro ? `<small>${esc(GasoCoches.nombre(cocheFiltro))}</small>` : ''}</h2>
+       <button type="button" class="rp-apuntar" id="rpApuntar" aria-controls="nuevoRepostaje" aria-expanded="${formAbierto}">${ICO.mas}<span>Apuntar</span></button>
+     </header>
+     <div class="repos-layout rp">
       <aside class="repos-izq">
-        <details class="bloque nuevo-repo" id="nuevoRepostaje" ${formAbierto ? 'open' : ''}>
-          <summary class="boton primario">⛽ Apuntar repostaje</summary>
-          <h3 class="tit-form-repo">Apuntar repostaje</h3>
+        <details class="nuevo-repo rp-tarjeta" id="nuevoRepostaje" ${formAbierto ? 'open' : ''}>
+          <summary class="sr">Apuntar repostaje</summary>
+          <div class="rp-form-cab"><span class="rp-ico">${ICO.surtidor}</span><h3 class="tit-form-repo">Apuntar repostaje</h3><button type="button" class="rp-cerrar" id="rpCerrarForm" aria-label="Cerrar el formulario">✕</button></div>
           <form id="fDiario" class="form-diario" novalidate>
             <div class="ancho foto-campo">
-              <label class="boton" for="dFoto">📷 Foto del ticket <small>(opcional)</small></label>
+              <label class="boton" for="dFoto">${ICO.camara} Foto del ticket <small>(opcional)</small></label>
               <input type="file" id="dFoto" accept="image/*" capture="environment" class="sr">
               <span id="dFotoEstado" class="texto-ayuda">La guardamos con el repostaje y rellenamos fecha, litros e importe leyendo el ticket.</span>
             </div>
@@ -2297,26 +2339,31 @@
         </details>
       </aside>
       <div class="repos-der">
-      ${varios ? `<section class="bloque repo-coches">
+      ${varios ? `<section class="rp-tarjeta repo-coches">
         ${GasoCoches.galeriaHTML({ seleccion: filtroCocheRepos, anadir: false, modo: 'filtro', titulo: 'Ver los repostajes de un coche' })}
         <p class="texto-ayuda" aria-live="polite">${cocheFiltro ? `Viendo solo los repostajes de tu <b>${esc(GasoCoches.nombre(cocheFiltro))}</b>. Pulsa otra vez su foto para ver los de todos.` : 'Viendo los repostajes de todos tus coches. Pulsa la foto de uno para ver solo los suyos.'}</p>
       </section>` : ''}
-      <section class="bloque">
-        <div class="tiles">
-          <div><span>Este año</span><strong>${euros(esteAnio.euros, 0)}</strong><small>€ · ${euros(esteAnio.litros, 0)} L</small></div>
-          <div><span>En total</span><strong>${euros(total.euros, 0)}</strong><small>€ · ${total.n} repostajes</small></div>
-        </div>
-      </section>
-      <section class="bloque" id="bloqueDiario">
-        <h3>Mis repostajes${cocheFiltro ? ' · ' + esc(GasoCoches.nombre(cocheFiltro)) : ''}</h3>
-        ${lista.length ? grupos : cocheFiltro ? '<p class="texto-ayuda">Este coche aún no tiene repostajes.</p>' : '<p class="texto-ayuda">Aún no has apuntado ningún repostaje. Apúntalos aquí o desde la ficha de cada gasolinera, y verás cuánto echas y gastas cada mes.</p>'}
-        ${lista.length ? '<button type="button" class="boton" id="exportar">Exportar a Excel (CSV)</button>' : ''}
-        <p class="texto-ayuda">Se guardan en este dispositivo${window.Cuenta?.usuario() ? ' y en tu cuenta, también las fotos de los tickets, que solo ves tú' : '. Con una cuenta los tendrás también en tus otros dispositivos'}.</p>
-      </section>
+      <div id="bloqueDiario">
+        ${lista.length ? grupos : `<section class="rp-tarjeta rp-vacio"><span class="rp-ico grande">${ICO.surtidor}</span><p>${cocheFiltro ? 'Este coche aún no tiene repostajes.' : 'Aún no has apuntado ningún repostaje. Apúntalos aquí o desde la ficha de cada gasolinera, y verás cuánto echas y gastas cada mes.'}</p></section>`}
+        ${lista.length ? `<button type="button" class="rp-exportar" id="exportar">${ICO.hoja}<span>Exportar a Excel (CSV)</span>${ICO.flecha}</button>` : ''}
+        <p class="rp-tarjeta rp-nota"><span class="rp-ico">${ICO.bombilla}</span><span>Se guardan en este dispositivo${window.Cuenta?.usuario() ? ' y en tu cuenta, también las fotos de los tickets, que solo ves tú' : '. Con una cuenta los tendrás también en tus otros dispositivos'}.</span></p>
+      </div>
       </div>
      </div>`;
-    // En el ordenador el formulario no se pliega
-    $('#nuevoRepostaje').addEventListener('toggle', (ev) => { if (!esMovil() && !ev.target.open) ev.target.open = true; });
+    // En el ordenador el formulario no se pliega; en móvil y tableta se abre y cierra desde la cabecera
+    const formRepo = $('#nuevoRepostaje');
+    formRepo.addEventListener('toggle', () => {
+      if (estiloPC() && !formRepo.open) formRepo.open = true;
+      $('#rpApuntar')?.setAttribute('aria-expanded', String(formRepo.open));
+    });
+    $('#rpApuntar').addEventListener('click', () => {
+      formRepo.open = !formRepo.open;
+      if (formRepo.open) {
+        formRepo.scrollIntoView({ block: 'start', behavior: 'smooth' });
+        setTimeout(() => $('#dLitros')?.focus({ preventScroll: true }), 250);
+      }
+    });
+    $('#rpCerrarForm').addEventListener('click', () => (formRepo.open = false));
 
     activarRepostajes();
     pintarMiEmpresa();
@@ -2335,15 +2382,6 @@
         if (filtroCocheRepos && $('#dCoche')?.tagName === 'SELECT') $('#dCoche').value = filtroCocheRepos;
       }));
     }
-    // Miniaturas de los tickets
-    $$('img[data-cargar]', el).forEach(async (img) => {
-      if (!img.dataset.cargar) return;
-      const u = await GasoFotos.url(img.dataset.cargar);
-      if (u) {
-        img.src = u;
-        img.closest('.miniatura').hidden = false;
-      } else img.closest('.miniatura').hidden = true;
-    });
   }
 
   function activarMiCoche() {
@@ -2500,6 +2538,7 @@
         }
       }
       pintarRepostajes();
+      if (!estiloPC() && $('#nuevoRepostaje')) $('#nuevoRepostaje').open = false; // en móvil se cierra para ver el repostaje nuevo
       avisar(msg + msgFoto, 4500);
       $(`[data-entrada="${idNuevo}"]`)?.scrollIntoView({ block: 'center' });
     });
@@ -2508,7 +2547,7 @@
       b.addEventListener('click', () => {
         if (b.dataset.paso !== 'confirmar') {
           b.dataset.paso = 'confirmar';
-          b.textContent = 'Confirmar borrado';
+          (b.querySelector('span') || b).textContent = '¿Seguro? Pulsa otra vez';
           return;
         }
         const x = estado.diario.find((y) => y.id === b.dataset.borrarEntrada);

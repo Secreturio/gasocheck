@@ -18,6 +18,16 @@
 
   const MARCAS = ['Abarth', 'Alfa Romeo', 'Audi', 'BMW', 'BYD', 'Citroën', 'Cupra', 'Dacia', 'DS', 'Fiat', 'Ford', 'Honda', 'Hyundai', 'Jaguar', 'Jeep', 'Kia', 'Land Rover', 'Lexus', 'Mazda', 'Mercedes-Benz', 'MG', 'Mini', 'Mitsubishi', 'Nissan', 'Opel', 'Peugeot', 'Porsche', 'Renault', 'Seat', 'Skoda', 'Smart', 'SsangYong', 'Subaru', 'Suzuki', 'Tesla', 'Toyota', 'Volkswagen', 'Volvo'];
   const COMBUSTIBLES = { gasoleoA: 'Diésel (gasóleo A)', gasolina95: 'Gasolina 95', gasolina98: 'Gasolina 98', gasoleoPremium: 'Diésel premium', glp: 'Autogás (GLP)' };
+  const svgI = (d) => `<svg class="ic" viewBox="0 0 24 24" aria-hidden="true">${d}</svg>`;
+  const ICO = {
+    calculadora: svgI('<rect x="5" y="2.5" width="14" height="19" rx="2.5"/><path d="M8.5 6.5h7v3h-7z"/><path d="M8.5 13h.01M12 13h.01M15.5 13h.01M8.5 16.5h.01M12 16.5h.01M15.5 16.5h.01" stroke-width="2.6"/>'),
+    info: svgI('<circle cx="12" cy="12" r="9"/><path d="M12 11v5.5M12 7.6v.01" stroke-width="2.2"/>'),
+    gota: svgI('<path d="M12 3.5c3 3.6 6 7.3 6 10.6a6 6 0 0 1-12 0c0-3.3 3-7 6-10.6z"/>'),
+    carretera: svgI('<path d="M9 3 5 21M15 3l4 18M12 4v2.5M12 10v3M12 16.5V20"/>'),
+    flecha: svgI('<path d="M5 12h14M13 6l6 6-6 6"/>'),
+    barras: svgI('<path d="M6 20V12M12 20V5M18 20v-9"/>'),
+    bombilla: svgI('<path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.6 10.8c.7.6 1.1 1.3 1.1 2.2h5c0-.9.4-1.6 1.1-2.2A6 6 0 0 0 12 3z"/><path d="M4 4l1 1M20 4l-1 1M2 11h1.2M20.8 11H22"/>'),
+  };
   const SILUETA = '<svg class="silueta" viewBox="0 0 120 50" aria-hidden="true"><path d="M8 38v-9c0-3 2-5 5-6l14-4 12-9c3-2 6-3 10-3h22c4 0 7 1 10 4l10 9 14 3c4 1 7 4 7 8v7c0 2-1 3-3 3h-6M32 41H52M8 38c0 2 1 3 3 3h6"/><circle cx="24" cy="40" r="7"/><circle cx="92" cy="40" r="7"/><path d="M40 19h52M66 9v10"/></svg>';
 
   /* ---------- Datos ---------- */
@@ -300,29 +310,54 @@
     }
     const meds = c.mediciones || [];
     const media = window.MiCoche.consumoMedio(meds);
-    el.innerHTML = `<div class="calc-consumo">
-        <h4>Calcular el consumo medio de tu ${esc(nombre(c))}</h4>
-        <p class="texto-ayuda">Llena el depósito y pon a cero el cuentakilómetros parcial. En el siguiente repostaje, llena otra vez y apunta los litros que echaste y los km que marca.</p>
-        <form id="fMedicion" class="form-coche" novalidate>
-          <label for="mLitros">Litros que echaste<input id="mLitros" inputmode="decimal" placeholder="45,2" autocomplete="off"></label>
-          <label for="mKm">Km que has hecho<input id="mKm" inputmode="decimal" placeholder="700" autocomplete="off"></label>
-          <div class="resultado-consumo ancho" id="mRes" aria-live="polite"><span class="formula">Consumo = litros ÷ km × 100</span></div>
-          <p class="error ancho" hidden></p>
-          <button class="boton primario ancho" type="submit">Guardar medición</button>
-        </form>
-        ${meds.length ? `
-        <div class="media-consumo">
-          <span>Consumo medio · ${esc(nombre(c))}${c.anio ? ' (' + esc(c.anio) + ')' : ''}</span>
-          <strong>${num(media)}</strong>
-          <small>litros cada 100 km · ${meds.length} ${meds.length === 1 ? 'medición' : 'mediciones'}</small>
+    const sumaL = meds.reduce((a, m) => a + m.litros, 0), sumaK = meds.reduce((a, m) => a + m.km, 0);
+    el.innerHTML = `<div class="cs">
+      <section class="cs-tarjeta cs-calc">
+        <div class="cs-cab">
+          <span class="cs-ico grande">${ICO.calculadora}</span>
+          <h4>Calcular el consumo medio <span>de tu ${esc(nombre(c))}</span></h4>
+          <button type="button" class="cs-info" id="csInfo" aria-expanded="false" aria-controls="csInfoTxt" aria-label="Consejos para medir bien el consumo">${ICO.info}</button>
         </div>
-        <p class="texto-ayuda">La media suma todos los litros y todos los km (${num(meds.reduce((a, m) => a + m.litros, 0), 1)} L ÷ ${num(meds.reduce((a, m) => a + m.km, 0), 0)} km × 100), para que un viaje largo cuente más que uno corto. La calculadora de ahorro de cada gasolinera usa el consumo del coche que tengas elegido.</p>
-        <ul class="mediciones">${meds.slice().reverse().slice(0, 12).map((m) => `<li>
-          <span class="m-fecha">${new Date(m.fecha + 'T12:00:00').toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: '2-digit' })}</span>
-          <span class="m-datos">${num(m.litros, 1)} L ÷ ${num(m.km, 0)} km</span>
-          <b>${num(m.consumo)}</b>
-          <button type="button" class="enlace texto-peligro" data-borrar-med="${esc(m.id)}" aria-label="Quitar la medición del ${esc(m.fecha)}">Quitar</button></li>`).join('')}</ul>` : ''}
-      </div>`;
+        <div class="cs-info-txt" id="csInfoTxt" hidden>
+          <p><b>Para que salga exacto:</b> llena siempre hasta que salte la pistola (mejor en el mismo surtidor), no redondees los litros del ticket y apunta varias mediciones: la media se afina con cada una.</p>
+        </div>
+        <p class="texto-ayuda">Llena el depósito y pon a cero el cuentakilómetros parcial. En el siguiente repostaje, llena otra vez y apunta los litros que echaste y los km que marca.</p>
+        <form id="fMedicion" class="cs-form" novalidate>
+          <label for="mLitros">Litros que echaste<span class="cs-campo"><input id="mLitros" inputmode="decimal" placeholder="45,2" autocomplete="off"><span class="cs-ud">${ICO.gota}L</span></span></label>
+          <label for="mKm">Km que has hecho<span class="cs-campo"><input id="mKm" inputmode="decimal" placeholder="700" autocomplete="off"><span class="cs-ud">${ICO.carretera}km</span></span></label>
+          <div class="cs-formula ancho" aria-live="polite"><span class="cs-ico-mini">${ICO.calculadora}</span><span id="mRes"><span class="formula">Consumo = litros ÷ km × 100</span></span></div>
+          <p class="error ancho" hidden></p>
+          <button class="boton primario ancho cs-guardar" type="submit"><span>Guardar medición</span>${ICO.flecha}</button>
+        </form>
+      </section>
+      <div class="cs-lado">
+      ${meds.length ? `
+        <section class="cs-tarjeta cs-media">
+          <span class="cs-ico grande">${ICO.barras}</span>
+          <div>
+            <span class="cs-media-tit">Consumo medio · ${esc(nombre(c))}${c.anio ? ' (' + esc(c.anio) + ')' : ''}</span>
+            <strong>${num(media)}</strong>
+            <small>litros cada 100 km · ${meds.length} ${meds.length === 1 ? 'medición' : 'mediciones'}</small>
+          </div>
+          <svg class="cs-onda" viewBox="0 0 300 120" preserveAspectRatio="none" aria-hidden="true"><path d="M0 110 C60 105 90 70 150 62 S240 30 300 10 L300 120 L0 120Z"/><path class="linea" d="M0 110 C60 105 90 70 150 62 S240 30 300 10"/></svg>
+        </section>
+        <p class="cs-tarjeta cs-nota"><span class="cs-ico">${ICO.bombilla}</span><span>La media suma todos los litros y todos los km (${num(sumaL, 1)} L ÷ ${num(sumaK, 0)} km × 100), para que un viaje largo cuente más que uno corto. La calculadora de ahorro de cada gasolinera usa el consumo del coche que tengas elegido.</span></p>
+        <section class="cs-tarjeta cs-hist">
+          <h5>Tus mediciones</h5>
+          <ul class="mediciones">${meds.slice().reverse().slice(0, 12).map((m) => `<li>
+            <span class="m-fecha">${new Date(m.fecha + 'T12:00:00').toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: '2-digit' })}</span>
+            <span class="m-datos">${num(m.litros, 1)} L ÷ ${num(m.km, 0)} km</span>
+            <b>${num(m.consumo)}</b>
+            <button type="button" class="enlace texto-peligro" data-borrar-med="${esc(m.id)}" aria-label="Quitar la medición del ${esc(m.fecha)}">Quitar</button></li>`).join('')}</ul>
+        </section>` : `
+        <p class="cs-tarjeta cs-nota"><span class="cs-ico">${ICO.bombilla}</span><span>Cuando guardes tu primera medición verás aquí el consumo medio de tu ${esc(nombre(c))}. La calculadora de ahorro de cada gasolinera usa el consumo del coche que tengas elegido.</span></p>`}
+      </div>
+    </div>`;
+    $('#csInfo', el).addEventListener('click', (ev) => {
+      const abrir = $('#csInfoTxt', el).hidden;
+      $('#csInfoTxt', el).hidden = !abrir;
+      ev.currentTarget.setAttribute('aria-expanded', String(abrir));
+    });
     const calcular = () => {
       const l = decimal($('#mLitros', el).value), k = decimal($('#mKm', el).value);
       const r = window.MiCoche.consumo(l, k);

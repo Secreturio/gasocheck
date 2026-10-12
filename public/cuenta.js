@@ -87,6 +87,9 @@
     for (const [id, v] of Lm) if (!(B.has(id) && !R.has(id) && igual(v, B.get(id)))) out.set(id, v); // lo local gana si está en ambos
     return [...out.values()];
   }
+  // La base se guarda como copia: si compartiera objetos con el estado de la app, al apuntar algo
+  // nuevo también cambiaría la base y la siguiente sincronización lo tomaría por borrado en la cuenta
+  const copia = (x) => JSON.parse(JSON.stringify(x));
   function combinar(base, local, remoto) {
     const b = base || {};
     const porId = (x) => x.id;
@@ -130,12 +133,12 @@
         const datos = remoto.datos ? combinar(sync.base, local, remoto.datos) : local;
         if (remoto.datos) opciones.aplicarRemoto(datos);
         if (remoto.datos && JSON.stringify(datos) === JSON.stringify(remoto.datos)) {
-          sync = { version: remoto.version, base: datos, cuando: Date.now() };
+          sync = { version: remoto.version, base: copia(datos), cuando: Date.now() };
           break;
         }
         try {
           const r = await api('/api/cuenta/datos', { metodo: 'PUT', cuerpo: { version: remoto.version, datos } });
-          sync = { version: r.version, base: datos, cuando: Date.now() };
+          sync = { version: r.version, base: copia(datos), cuando: Date.now() };
           break;
         } catch (e) {
           if (e.status !== 409) throw e; // otro dispositivo escribió justo ahora: repetir
