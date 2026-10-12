@@ -21,7 +21,7 @@ try {
 }
 
 if (!process.env.ADMIN_TOKEN) avisos.push('ADMIN_TOKEN no está definido: /admin.html (moderación) quedará desactivado.');
-if (!process.env.RESEND_API_KEY || !process.env.CORREO_REMITENTE) avisos.push('Sin RESEND_API_KEY y CORREO_REMITENTE los correos (verificar cuenta, recuperar contraseña) no se envían: salen en el registro de la función.');
+if (!(process.env.BREVO_API_KEY || process.env.RESEND_API_KEY) || !process.env.CORREO_REMITENTE) avisos.push('Sin BREVO_API_KEY (o RESEND_API_KEY) y CORREO_REMITENTE los correos (verificar cuenta, recuperar contraseña) no se envían: salen en el registro de la función.');
 if (!process.env.REPORT_SALT) avisos.push('REPORT_SALT no está definido: conviene poner una cadena secreta cualquiera.');
 
 for (const a of avisos) console.log('⚠️  ' + a);
