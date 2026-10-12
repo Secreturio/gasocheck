@@ -37,7 +37,7 @@ export function cifrar(contenido, p256dh, auth, pruebas = {}) {
   return Buffer.concat([sal, rs, Buffer.from([asPublica.length]), asPublica, cifrado]);
 }
 
-export async function crearWebPush(almacen, { sujeto = 'mailto:gasochecklegal@gmail.com' } = {}) {
+export async function crearWebPush(almacen, { sujeto = 'mailto:gasocheck2026@gmail.com' } = {}) {
   let publica = process.env.VAPID_PUBLICA || '';
   let privadaJwk = null;
   if (process.env.VAPID_PRIVADA && publica) {

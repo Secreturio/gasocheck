@@ -7,7 +7,7 @@
 
 import crypto from 'node:crypto';
 
-const UA = 'GasoCheck/1.0 (https://gasocheck.es; gasochecklegal@gmail.com) foto-del-coche';
+const UA = 'GasoCheck/1.0 (https://gasocheck.netlify.app; gasocheck2026@gmail.com) foto-del-coche';
 const MAX_BYTES = 3 * 1024 * 1024;
 const NEGATIVO_MS = 24 * 3600 * 1000; // si no se encontró foto, no se vuelve a buscar en un día
 

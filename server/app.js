@@ -82,7 +82,7 @@ export async function crearApp({ almacen, demo = false, appUrl = '' }) {
   const estaciones = crearEstaciones(almacen, { demo });
   // Las claves de notificaciones se leen (o se crean) la primera vez que hacen falta
   let pushListo = null;
-  const obtenerPush = () => (pushListo ||= crearWebPush(almacen, { sujeto: process.env.PUSH_CONTACTO || 'mailto:gasochecklegal@gmail.com' }).catch((e) => {
+  const obtenerPush = () => (pushListo ||= crearWebPush(almacen, { sujeto: process.env.PUSH_CONTACTO || 'mailto:gasocheck2026@gmail.com' }).catch((e) => {
     pushListo = null;
     throw e;
   }));
