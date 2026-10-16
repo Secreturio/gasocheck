@@ -33,7 +33,7 @@ export function crearPuntos(db, { reputacion }) {
       de(f.usuario).tickets = f.tk || 0;
     }
     for (const f of db.todos('SELECT usuario, COUNT(*) AS n FROM correcciones_precio WHERE fecha >= ? GROUP BY usuario', desde)) de(f.usuario).correcciones = f.n;
-    for (const f of db.todos('SELECT usuario, COUNT(*) AS n, SUM(confirmaciones) AS c FROM incidentes WHERE usuario IS NOT NULL AND creado >= ? GROUP BY usuario', desde)) {
+    for (const f of db.todos('SELECT usuario, COUNT(*) AS n, SUM(confirmaciones) AS c FROM incidentes WHERE usuario IS NOT NULL AND retirado = 0 AND creado >= ? GROUP BY usuario', desde)) {
       de(f.usuario).incidentes = f.n;
       de(f.usuario).confirmacionesRecibidas = f.c || 0;
     }

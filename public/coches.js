@@ -311,6 +311,12 @@
     const meds = c.mediciones || [];
     const media = window.MiCoche.consumoMedio(meds);
     const sumaL = meds.reduce((a, m) => a + m.litros, 0), sumaK = meds.reduce((a, m) => a + m.km, 0);
+    // Repostajes de este coche que se pueden vincular (los más recientes, sin otra medición)
+    const diario = (A().estado?.diario || []).filter((x) => window.MiCoche.esDelCoche(x, c.id, lista()));
+    const vinculados = new Set(meds.map((m) => m.repostaje).filter(Boolean));
+    const repoDe = (id) => diario.find((x) => x.id === id);
+    const fechaC = (f) => new Date(f + 'T12:00:00').toLocaleDateString('es-ES', { day: 'numeric', month: 'short' });
+    const vinculables = diario.filter((x) => !vinculados.has(x.id)).sort((a, b) => (b.fecha + (b.hora || '')).localeCompare(a.fecha + (a.hora || ''))).slice(0, 25);
     el.innerHTML = `<div class="cs">
       <section class="cs-tarjeta cs-calc">
         <div class="cs-cab">
@@ -323,6 +329,7 @@
         </div>
         <p class="texto-ayuda">Llena el depósito y pon a cero el cuentakilómetros parcial. En el siguiente repostaje, llena otra vez y apunta los litros que echaste y los km que marca.</p>
         <form id="fMedicion" class="cs-form" novalidate>
+          ${vinculables.length ? `<label for="mRepo" class="ancho cs-vincular">Vincular a uno de tus repostajes <small>(opcional: pone sus litros)</small><select id="mRepo"><option value="">— Ninguno —</option>${vinculables.map((x) => `<option value="${esc(x.id)}">${esc(fechaC(x.fecha))} · ${num(x.litros, 2)} L${x.lleno ? ' · lleno' : ''}${x.nombre ? ' · ' + esc(x.nombre.split(' · ')[0]) : ''}</option>`).join('')}</select></label>` : ''}
           <label for="mLitros">Litros que echaste<span class="cs-campo"><input id="mLitros" inputmode="decimal" placeholder="45,2" autocomplete="off"><span class="cs-ud">${ICO.gota}L</span></span></label>
           <label for="mKm">Km que has hecho<span class="cs-campo"><input id="mKm" inputmode="decimal" placeholder="700" autocomplete="off"><span class="cs-ud">${ICO.carretera}km</span></span></label>
           <div class="cs-formula ancho" aria-live="polite"><span class="cs-ico-mini">${ICO.calculadora}</span><span id="mRes"><span class="formula">Consumo = litros ÷ km × 100</span></span></div>
@@ -346,7 +353,7 @@
           <h5>Tus mediciones</h5>
           <ul class="mediciones">${meds.slice().reverse().slice(0, 12).map((m) => `<li>
             <span class="m-fecha">${new Date(m.fecha + 'T12:00:00').toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: '2-digit' })}</span>
-            <span class="m-datos">${num(m.litros, 1)} L ÷ ${num(m.km, 0)} km</span>
+            <span class="m-datos">${num(m.litros, 1)} L ÷ ${num(m.km, 0)} km${m.repostaje && repoDe(m.repostaje) ? `<small class="m-repo">⛽ repostaje del ${esc(fechaC(repoDe(m.repostaje).fecha))}</small>` : ''}</span>
             <b>${num(m.consumo)}</b>
             <button type="button" class="enlace texto-peligro" data-borrar-med="${esc(m.id)}" aria-label="Quitar la medición del ${esc(m.fecha)}">Quitar</button></li>`).join('')}</ul>
         </section>` : `
@@ -366,6 +373,14 @@
         : `<span class="formula">${num(l, 1)} ÷ ${num(k, 0)} × 100 =</span> <strong>${num(r)}</strong> <span>l/100 km</span>${r < 2 || r > 30 ? '<span class="texto-peligro"> Es un consumo poco habitual: revisa los datos.</span>' : ''}`;
     };
     $('#mLitros', el).addEventListener('input', calcular);
+    $('#mRepo', el)?.addEventListener('change', (ev) => {
+      const x = repoDe(ev.target.value);
+      if (x) {
+        $('#mLitros', el).value = String(x.litros).replace('.', ',');
+        calcular();
+        $('#mKm', el).focus();
+      }
+    });
     $('#mKm', el).addEventListener('input', calcular);
     const conMediciones = (nuevas) => lista().map((x) => (x.id === c.id ? { ...x, mediciones: nuevas } : x));
     $('#fMedicion', el).addEventListener('submit', (ev) => {
@@ -375,7 +390,8 @@
       const l = decimal($('#mLitros', el).value), k = decimal($('#mKm', el).value);
       if (!(l > 0 && l <= 2000)) { err.textContent = 'Escribe los litros que echaste (por ejemplo 45,2).'; err.hidden = false; return; }
       if (!(k > 0 && k <= 100000)) { err.textContent = 'Escribe los km que has hecho desde el anterior llenado (por ejemplo 700).'; err.hidden = false; return; }
-      const nuevas = [...meds, { id: nuevoId(), fecha: hoyISO(), litros: l, km: k, consumo: window.MiCoche.consumo(l, k) }].slice(-100);
+      const repo = repoDe($('#mRepo', el)?.value || '');
+      const nuevas = [...meds, { id: nuevoId(), fecha: repo?.fecha || hoyISO(), litros: l, km: k, consumo: window.MiCoche.consumo(l, k), ...(repo ? { repostaje: repo.id } : {}) }].slice(-100);
       guardar(conMediciones(nuevas), c.id);
       avisar(`Consumo: ${num(window.MiCoche.consumo(l, k))} l/100 km · media ${num(window.MiCoche.consumoMedio(nuevas))}`, 4500);
       refrescar();

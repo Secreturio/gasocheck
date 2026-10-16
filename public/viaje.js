@@ -11,7 +11,8 @@
   };
 
   const mapa = L.map('mapa', { zoomControl: false }).setView([40.2, -3.7], 6);
-  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">colaboradores de OpenStreetMap</a>' }).addTo(mapa);
+  mapa.attributionControl.setPrefix(false); // sin la marca de Leaflet (el crédito de OpenStreetMap es obligatorio y se queda, en pequeño)
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' }).addTo(mapa);
   let yo = null, meta = null, encuadrado = false;
 
   async function actualizar() {

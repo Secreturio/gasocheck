@@ -419,11 +419,20 @@ export async function crearApp({ almacen, demo = false, appUrl = '' }) {
       const q = c.url.searchParams;
       const z = { s: Number(q.get('s')), w: Number(q.get('w')), n: Number(q.get('n')), e: Number(q.get('e')) };
       if (!Object.values(z).every(Number.isFinite) || z.n - z.s > 6 || z.e - z.w > 8 || z.n < z.s || z.e < z.w) return error(400, 'Indica una zona (s, w, n, e) no demasiado grande.');
-      return { incidentes: incidentes.enZona(z), tipos: Object.fromEntries(Object.entries(incidentes.TIPOS).map(([k, v]) => [k, v.nombre])) };
+      const claves = (q.get('claves') || '').split(',').filter((x) => /^[\w-]{10,40}$/.test(x));
+      return { incidentes: incidentes.enZona(z, { ip: c.ip, usuario: c.usuario, claves }), tipos: Object.fromEntries(Object.entries(incidentes.TIPOS).map(([k, v]) => [k, v.nombre])) };
     }],
     ['POST', '/api/incidentes', {}, (c) => {
       const r = incidentes.crear(c.body, { ip: c.ip, usuario: c.usuario });
       return r.error ? error(r.status, r.error) : new Respuesta(201, r);
+    }],
+    ['PUT', /^\/api\/incidentes\/([^/]+)$/, {}, (c) => {
+      const r = incidentes.editar(c.p[0], c.body || {}, { ip: c.ip, usuario: c.usuario });
+      return r.error ? error(r.status, r.error) : r;
+    }],
+    ['POST', /^\/api\/incidentes\/([^/]+)\/quitar$/, {}, (c) => {
+      const r = incidentes.quitar(c.p[0], c.body || {}, { ip: c.ip, usuario: c.usuario });
+      return r.error ? error(r.status, r.error) : r;
     }],
     ['POST', /^\/api\/incidentes\/([^/]+)\/voto$/, {}, (c) => {
       const r = incidentes.votar(c.p[0], c.body.sigue, { ip: c.ip, usuario: c.usuario });

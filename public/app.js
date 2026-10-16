@@ -21,6 +21,12 @@
   const norm = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
   const euros = (n, dec = 3) => (n == null || Number.isNaN(n) ? '—' : n.toFixed(dec).replace('.', ','));
   const num1 = (n) => n.toFixed(1).replace('.', ',');
+  // Importes con separador de miles siempre (1.002,15), también con 4 cifras
+  const dinero = (n, dec = 2) => {
+    if (n == null || Number.isNaN(n)) return '—';
+    const [e, d] = Math.abs(n).toFixed(dec).split('.');
+    return (n < 0 ? '−' : '') + e.replace(/\B(?=(\d{3})+(?!\d))/g, '.') + (d ? ',' + d : '');
+  };
   const leer = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
   const CLAVES_SYNC = new Set(['gm.favoritas', 'gm.descuentos', 'gm.diario', 'gm.ajustes']);
   const guardarLocal = (k, v, { sinSync = false } = {}) => {
@@ -144,8 +150,9 @@
   //   window.GASOCHECK_TESELAS = { url: 'https://…/{z}/{x}/{y}.png?key=…', atribucion: '…', oscurecer: true }
   const T = window.GASOCHECK_TESELAS || {};
   const mapa = L.map('mapa', { zoomControl: false }).setView([40.2, -3.7], 6);
+  mapa.attributionControl.setPrefix(false); // sin la marca de Leaflet (el crédito de OpenStreetMap es obligatorio y se queda, en pequeño)
   L.control.scale({ imperial: false, position: 'bottomright', maxWidth: 110 }).addTo(mapa);
-  const OSM = '&copy; <a href="https://www.openstreetmap.org/copyright">colaboradores de OpenStreetMap</a>';
+  const OSM = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
   const fuentesMapa = [
     T.url ? { url: T.url, atribucion: T.atribucion || OSM, maxZoom: T.maxZoom, subdominios: T.subdominios } : null,
     { url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', atribucion: OSM },
@@ -1102,6 +1109,12 @@
     flecha: svg('<path d="M5 12h14M13 6l6 6-6 6"/>'),
     bombilla: svg('<path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.6 10.8c.7.6 1.1 1.3 1.1 2.2h5c0-.9.4-1.6 1.1-2.2A6 6 0 0 0 12 3z"/><path d="M4 4l1 1M20 4l-1 1M2 11h1.2M20.8 11H22"/>'),
     mas: svg('<path d="M12 5v14M5 12h14"/>'),
+    llave: svg('<path d="M14.7 6.3a4.5 4.5 0 0 0-5.9 5.9L3.5 17.5a2 2 0 0 0 2.9 2.9l5.3-5.3a4.5 4.5 0 0 0 5.9-5.9l-2.7 2.7-2.4-.5-.5-2.4z"/>'),
+    sumar: svg('<path d="M18 5H7l6 7-6 7h11"/>'),
+    lapiz: svg('<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/>'),
+    enlace: svg('<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>'),
+    lupa: svg('<circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/>'),
+    qr: svg('<rect x="3.5" y="3.5" width="6.5" height="6.5" rx="1"/><rect x="14" y="3.5" width="6.5" height="6.5" rx="1"/><rect x="3.5" y="14" width="6.5" height="6.5" rx="1"/><path d="M14 14h3v3h-3zM20.5 14v.01M17 20.5h3.5V17"/>'),
   };  const ALTURAS = ['minimo', 'bajo', 'medio', 'alto'];
   // Altura exacta de "minimo": asa + combustibles + caja de búsqueda (se mide, así vale para cualquier tamaño de pantalla)
   function medirMinimo() {
@@ -1447,6 +1460,7 @@
         <section class="tarjeta-ficha" aria-labelledby="tPrecios">
           <div class="tf-cab"><h3 id="tPrecios">Precios por litro${conDescuento() && dtoActual ? ' · con tus descuentos' : ''}</h3>${actualizado ? `<span class="tf-nota">Actualizado: ${actualizado} ${INFO('Precios oficiales del Ministerio para la Transición Ecológica. Se actualizan cada 30 minutos.')}</span>` : ''}</div>
           <ul class="lista-precios">${filasPrecio}</ul>
+          ${tarjetasPara(e).length ? `<div class="ficha-tarjetas">${tarjetasPara(e).map((g) => `<button type="button" class="boton" data-ver-tarjeta-ficha="${esc(g.id)}">${ICO.qr}Mostrar mi tarjeta${g.nombre ? ' · ' + esc(g.nombre) : g.marca !== '*' ? ' ' + esc(g.marca) : ''}</button>`).join('')}</div>` : ''}
           ${Object.keys(ex.d || {}).length ? `<p class="texto-ayuda fuente-precios">Los precios “declarados” los publica la propia gasolinera. Si ${CONSENSO} usuarios con cuenta coinciden en que el precio real es otro, se muestra el suyo en su lugar.</p>` : ''}
           <div id="alertaCaja"></div>
           ${Object.keys(ex.d || {}).length ? '<div id="correccionCaja"><button type="button" class="enlace" id="bCorregir">¿El precio de la gasolinera no es el que viste?</button></div>' : ''}
@@ -2045,7 +2059,7 @@
 
   function opcionesEstacion(sel) {
     const ids = [...new Set([...(sel ? [sel] : []), ...estado.recientes, ...estado.favoritas])].filter((id) => estado.porId.has(id));
-    return '<option value="">Sin indicar</option>' + ids.map((id) => `<option value="${esc(id)}" ${id === sel ? 'selected' : ''}>${esc(nombreEstacion(estado.porId.get(id)))}</option>`).join('');
+    return '<option value="">Sin indicar</option>' + ids.map((id) => `<option value="${esc(id)}" ${id === sel ? 'selected' : ''}>${esc(nombreEstacion(estado.porId.get(id)))}</option>`).join('') + '<option value="__buscar">🔎 Buscar otra gasolinera…</option>';
   }
 
   function diarioDelCocheActivo() {
@@ -2054,7 +2068,7 @@
     return coches.length > 1 && act ? estado.diario.filter((x) => MiCoche.esDelCoche(x, act.id, coches)) : estado.diario;
   }
   // Mi coche: arriba los coches (pulsa uno para elegirlo) y debajo sus apartados
-  let apartadoMC = 'datos';
+  let apartadoMC = 'consumo';
   let mcCierreMenu = null; // oyentes globales del menú hamburguesa (se renuevan en cada pintado)
   function pintarMiCoche() {
     const el = $('#vMiCoche');
@@ -2074,20 +2088,63 @@
     const mesPasado = d.toISOString().slice(0, 7);
     const marcas = [...new Set(estado.estaciones.map((e) => e.rotulo))].sort((a, b) => a.localeCompare(b, 'es')).slice(0, 400);
     const conEmpresa = window.Cuenta?.usuario()?.rol === 'usuario';
-    if (apartadoMC === 'empresa' && !conEmpresa) apartadoMC = 'datos';
+    if (apartadoMC === 'empresa' && !conEmpresa) apartadoMC = 'consumo';
+    if (!coches.length) apartadoMC = 'datos'; // sin coche, lo primero es añadirlo
 
     const reglas = estado.descuentos.length
       ? `<ul class="reglas">${estado.descuentos
-          .map((g) => `<li><span>${g.nombre ? `<b>${esc(g.nombre)}</b> · ` : ''}${esc(MiCoche.textoRegla(g))}</span><button type="button" class="enlace" data-borrar-regla="${esc(g.id)}">Quitar</button></li>`)
+          .map((g) => `<li class="regla-dto">
+            <span class="regla-txt">${g.nombre ? `<b>${esc(g.nombre)}</b> · ` : ''}${esc(MiCoche.textoRegla(g))}</span>
+            <span class="regla-acc">
+              ${g.foto ? `<button type="button" class="boton regla-tarjeta" data-ver-tarjeta="${esc(g.id)}">${ICO.qr}Mostrar tarjeta</button>` : ''}
+              <label class="enlace" for="rgFoto-${esc(g.id)}">${g.foto ? 'Cambiar foto' : '📷 Añadir foto de la tarjeta (QR)'}</label>
+              <input type="file" id="rgFoto-${esc(g.id)}" class="sr" accept="image/*" data-foto-regla="${esc(g.id)}">
+              <button type="button" class="enlace texto-peligro" data-borrar-regla="${esc(g.id)}">Quitar</button>
+            </span></li>`)
           .join('')}</ul>`
       : '<p class="texto-ayuda">Aún no has añadido descuentos. Con ellos podrás ver los precios tal y como los pagas tú, sin perder la vista oficial.</p>';
 
-    const tiles = `<div class="tiles">
-      <div><span>Consumo real</span><strong>${an.consumoMedio ? num1(an.consumoMedio) : '—'}</strong><small>l/100 km</small></div>
-      <div><span>Gasto ${MESES[+mesActual.slice(5) - 1]}</span><strong>${euros(an.gastoPorMes[mesActual] || 0, 0)}</strong><small>€</small></div>
-      <div><span>Gasto ${MESES[+mesPasado.slice(5) - 1]}</span><strong>${euros(an.gastoPorMes[mesPasado] || 0, 0)}</strong><small>€</small></div>
-      <div><span>Precio medio pagado</span><strong>${an.precioMedio ? euros(an.precioMedio) : '—'}</strong><small>€/l</small></div>
-    </div>`;
+    // Gastos del coche elegido: compra + mantenimiento (por separado y total) y lo echado de combustible
+    const anioAct = mesActual.slice(0, 4);
+    const sumaImp = (xs) => xs.reduce((t, x) => t + (x.importe || 0), 0);
+    const sumaL = (xs) => xs.reduce((t, x) => t + (x.litros || 0), 0);
+    const fMes = diarioCoche.filter((x) => (x.fecha || '').startsWith(mesActual));
+    const fAnio = diarioCoche.filter((x) => (x.fecha || '').startsWith(anioAct));
+    const mants = (estado.ajustes.mantenimientos || []).filter((m) => m && (!act || m.coche === act.id || (coches.length < 2 && !coches.some((c) => c.id === m.coche))));
+    const mantTotal = mants.reduce((t, m) => t + (m.precio || 0), 0);
+    const mantAnio = mants.filter((m) => (m.fecha || '').startsWith(anioAct)).reduce((t, m) => t + (m.precio || 0), 0);
+    const compra = act?.precioCompra > 0 ? act.precioCompra : null;
+    const combTotal = sumaImp(diarioCoche);
+    const nombreMes = MESES[+mesActual.slice(5) - 1];
+    const fila = (ico, txt, sub, valor, extra = '') => `<li class="gs-fila${extra}"><span class="rp-ico">${ico}</span><div><b>${txt}</b>${sub ? `<small>${sub}</small>` : ''}</div><strong>${valor}</strong></li>`;
+    const tiles = act ? `
+      <section class="rp-tarjeta gs-tarjeta">
+        <div class="cs-cab"><span class="cs-ico grande">${ICO.monedas}</span><h4>Lo que te ha costado el coche <span>Compra y mantenimiento, por separado y en total</span></h4></div>
+        <ul class="gs-lista">
+          ${fila(ICO.etiqueta, 'Compra del vehículo', compra ? (act.fechaCompra ? 'Comprado en ' + esc(act.fechaCompra.slice(0, 4)) : '') : 'Aún no lo has indicado', compra ? dinero(compra) + ' €' : '—')}
+          ${fila(ICO.llave, 'Mantenimiento', `${mants.length} ${mants.length === 1 ? 'intervención' : 'intervenciones'}${mantAnio ? ` · ${dinero(mantAnio)} € en ${anioAct}` : ''}`, dinero(mantTotal) + ' €')}
+          ${fila(ICO.sumar, 'Total', 'Compra + mantenimiento', dinero((compra || 0) + mantTotal) + ' €', ' total')}
+        </ul>
+        <form class="gs-compra" id="fCompra" novalidate>
+          <label for="gsCompra">Precio de compra<span class="cs-campo"><input id="gsCompra" inputmode="decimal" placeholder="12.500" value="${compra ? dinero(compra).replace(/,00$/, '') : ''}"><span class="cs-ud">€</span></span></label>
+          <label for="gsFechaCompra">Fecha de compra<input id="gsFechaCompra" type="date" max="${hoyISO()}" value="${esc(act.fechaCompra || '')}"></label>
+          <button type="submit" class="boton">${compra ? 'Guardar cambios' : 'Guardar'}</button>
+        </form>
+      </section>
+      <section class="rp-tarjeta gs-tarjeta">
+        <div class="cs-cab"><span class="cs-ico grande">${ICO.surtidor}</span><h4>Combustible <span>Lo que has echado al coche según tus repostajes</span></h4></div>
+        <div class="rp-stats gs-stats">
+          <div><p><span>En ${nombreMes}</span><b>${dinero(sumaImp(fMes))}<small> €</small></b><span>${dinero(sumaL(fMes), 1)} L · ${fMes.length} ${fMes.length === 1 ? 'repostaje' : 'repostajes'}</span></p></div>
+          <div><p><span>En ${anioAct}</span><b>${dinero(sumaImp(fAnio))}<small> €</small></b><span>${dinero(sumaL(fAnio), 1)} L · ${fAnio.length} ${fAnio.length === 1 ? 'repostaje' : 'repostajes'}</span></p></div>
+        </div>
+        <ul class="gs-lista">
+          ${fila(ICO.calendario, `Mes pasado (${MESES[+mesPasado.slice(5) - 1]})`, '', dinero(an.gastoPorMes[mesPasado] || 0) + ' €')}
+          ${fila(ICO.etiqueta, 'Precio medio pagado', '', an.precioMedio ? euros(an.precioMedio) + ' €/l' : '—')}
+          ${fila(ICO.gota, 'Consumo real', 'Según tus repostajes con depósito lleno', an.consumoMedio ? num1(an.consumoMedio) + ' l/100 km' : '—')}
+          ${fila(ICO.monedas, 'Total en combustible', 'Desde tu primer repostaje apuntado', dinero(combTotal) + ' €', ' total')}
+        </ul>
+      </section>
+      <p class="rp-tarjeta rp-nota"><span class="rp-ico">${ICO.bombilla}</span><span>Todo junto (compra, mantenimiento y combustible): <b>${dinero((compra || 0) + mantTotal + combTotal)} €</b>.</span></p>` : '<p class="texto-ayuda">Añade tu coche en «Datos del coche» para ver sus gastos.</p>';
 
     const vistas = new Set();
     const anomalias = an.anomalias
@@ -2103,11 +2160,11 @@
       .join('');
 
     const apartados = [
-      ['datos', 'Datos del coche', '<path d="M4 16.5v-4.5l2-5h12l2 5v4.5z"/><circle cx="7.5" cy="16.5" r="1.8"/><circle cx="16.5" cy="16.5" r="1.8"/><path d="M4 12h16"/>'],
       ['consumo', 'Consumo', '<path d="M4 18a8 8 0 1 1 16 0"/><path d="M12 18l4-6"/>'],
-      ['gastos', 'Gastos', '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>'],
       ['mantenimiento', 'Mantenimiento', '<path d="M14.7 6.3a4.5 4.5 0 0 0-5.9 5.9L3.5 17.5a2 2 0 0 0 2.9 2.9l5.3-5.3a4.5 4.5 0 0 0 5.9-5.9l-2.7 2.7-2.4-.5-.5-2.4z"/>'],
+      ['gastos', 'Gastos', '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>'],
       ['descuentos', 'Descuentos', '<path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="8" r="1.5"/>'],
+      ['datos', 'Datos del coche', '<path d="M4 16.5v-4.5l2-5h12l2 5v4.5z"/><circle cx="7.5" cy="16.5" r="1.8"/><circle cx="16.5" cy="16.5" r="1.8"/><path d="M4 12h16"/>'],
       conEmpresa && ['empresa', 'Empresa', '<rect x="4" y="3" width="16" height="18" rx="1"/><path d="M8 7h2M14 7h2M8 11h2M14 11h2M10 21v-4h4v4"/>'],
     ].filter(Boolean);
     const ap = (id, cuerpo, clase = '') => `<section class="apartado${clase ? ' ' + clase : ''}" data-mc="${id}" role="tabpanel" aria-labelledby="mc-${id}" ${apartadoMC === id ? '' : 'hidden'}>${cuerpo}</section>`;
@@ -2140,11 +2197,11 @@
                 ? `<button type="button" class="boton" id="usarReal">Usar mi consumo real según mis repostajes (${num1(an.consumoMedio)} l/100 km)</button>`
                 : ''}
             </div>`, 'apartado-tarjetas')}
-          ${ap('gastos', `<h3 class="apartado-tit">Gastos${act && coches.length > 1 ? ' · ' + nombreAct : ''}</h3>
+          ${ap('gastos', `<h3 class="apartado-tit cs-tarjeta cs-titulo"><span class="cs-ico grande">${ICO.barras}</span><span>Gastos${act ? ' · ' + nombreAct : ''}</span></h3>
             ${tiles}
             ${an.consumoMedio ? '' : '<p class="texto-ayuda">Para calcular tu consumo real, apunta los kilómetros y marca “depósito lleno” en al menos dos repostajes.</p>'}
             ${anomalias}
-            <div class="acciones"><button type="button" class="boton primario" id="irApuntar">⛽ Apuntar repostaje</button><button type="button" class="boton" id="irRepostajes">Ver mis repostajes</button></div>`)}
+            <div class="acciones"><button type="button" class="boton primario" id="irApuntar">⛽ Apuntar repostaje</button><button type="button" class="boton" id="irRepostajes">Ver mis repostajes</button></div>`, 'apartado-tarjetas')}
           ${ap('mantenimiento', '<div id="mcMant" class="mt"></div>', 'apartado-tarjetas')}
           ${ap('descuentos', `<h3 class="apartado-tit">Mis descuentos</h3>
             ${reglas}
@@ -2154,10 +2211,11 @@
               <label for="rgValor">Descuento<input id="rgValor" inputmode="decimal" placeholder="5"></label>
               <label for="rgTipo">Tipo<select id="rgTipo"><option value="cent">cént./litro</option><option value="pct">%</option></select></label>
               <label for="rgNombre">Nombre (opcional)<input id="rgNombre" placeholder="Ej.: tarjeta del súper"></label>
+              <div class="rg-foto"><label class="boton" for="rgFotoNueva">${ICO.qr}<span id="rgFotoTxt">Foto de la tarjeta (QR) <small>opcional</small></span></label><input type="file" id="rgFotoNueva" class="sr" accept="image/*"></div>
               <button class="boton primario" type="submit">Añadir</button>
             </form>
             <p class="error" id="rgError" hidden></p>
-            <p class="texto-ayuda">Si tu descuento cambia según el día o tiene límite, pon una cifra media. En el <b>Mapa</b> verás el interruptor <b>Oficial / Con mis descuentos</b> para cambiar de vista cuando quieras.</p>`)}
+            <p class="texto-ayuda">Si tu tarjeta de cliente funciona con un código QR o de barras, añade su foto: la tendrás a mano con «Mostrar tarjeta», aquí y en la ficha de las gasolineras de esa marca. Si tu descuento cambia según el día o tiene límite, pon una cifra media. En el <b>Mapa</b> verás el interruptor <b>Oficial / Con mis descuentos</b> para cambiar de vista cuando quieras.</p>`)}
           ${conEmpresa ? ap('empresa', '<section class="bloque" id="bloqueEmpresa" hidden></section>') : ''}
         </div>
       </div>`;
@@ -2251,6 +2309,7 @@
     const total = sumar(lista);
     const esteAnio = sumar(lista.filter((x) => x.fecha.startsWith(hoy.slice(0, 4))));
 
+    const medDe = (x) => medicionDeRepostaje(x.id);
     const fila = (x) => {
       const f = new Date(x.fecha + 'T12:00:00');
       const est = x.estacion && estado.porId.get(x.estacion);
@@ -2261,10 +2320,11 @@
         x.km ? `<span>${x.km.toLocaleString('es-ES')} km</span>` : '',
         coche ? `<span class="repo-coche">${esc(GasoCoches.nombre(coche))}</span>` : '',
         x.empresa ? '<span class="rp-etq">Empresa</span>' : '',
+        medDe(x) ? `<span class="rp-etq rp-consumo" title="Consumo calculado con este repostaje">📈 ${num1(medDe(x).consumo)} l/100</span>` : '',
       ].filter(Boolean).join('<i class="rp-punto">·</i>');
-      return `<li class="rp-item" data-entrada="${esc(x.id)}">
+      return `<li class="rp-item" data-entrada="${esc(x.id)}" data-editar-repo="${esc(x.id)}" tabindex="0" aria-label="Editar el repostaje del ${f.toLocaleDateString('es-ES')}">
         <div class="rp-dia"><span>${capital(DIAS_SEM[f.getDay()])}</span><b>${f.getDate()}</b><span>${MESES[f.getMonth()].slice(0, 3).toUpperCase()}</span></div>
-        <p class="rp-donde">${ICO.pin}<span>${esc(x.nombre || 'Gasolinera sin indicar')}</span></p>
+        <p class="rp-donde${x.nombre ? '' : ' sin'}">${ICO.pin}<span>${x.nombre ? esc(x.nombre) : 'Sin gasolinera · toca para añadirla'}</span></p>
         <div class="rp-cifras">
           <div><b>${euros(x.litros, 2)}<small> L</small></b><span>Litros</span></div>
           <div><b>${x.importe ? euros(x.importe, 2) : '—'}<small> €</small></b><span>Importe</span></div>
@@ -2272,11 +2332,11 @@
         </div>
         <p class="rp-meta">${meta}</p>
         <div class="rp-acc">
-          ${est ? `<button type="button" class="rp-btn" data-id="${esc(est.id)}">${ICO.pin}<span>Ver gasolinera</span></button>` : ''}
+          ${est ? `<button type="button" class="rp-btn" data-id="${esc(est.id)}">${ICO.pin}<span><span class="largo">Ver gasolinera</span><span class="corto">Gasolinera</span></span></button>` : ''}
           ${x.foto
-            ? `<button type="button" class="rp-btn" data-foto="${esc(x.id)}">${ICO.ticket}<span>Ver ticket</span></button>
-               <label class="rp-btn" for="foto-${esc(x.id)}" title="Cambiar la foto del ticket">${ICO.camara}<span>Cambiar foto</span></label>`
-            : `<label class="rp-btn" for="foto-${esc(x.id)}">${ICO.camara}<span>Añadir foto del ticket</span></label>`}
+            ? `<button type="button" class="rp-btn" data-foto="${esc(x.id)}">${ICO.ticket}<span><span class="largo">Ver ticket</span><span class="corto">Ticket</span></span></button>
+               <label class="rp-btn" for="foto-${esc(x.id)}" title="Cambiar la foto del ticket">${ICO.camara}<span><span class="largo">Cambiar foto</span><span class="corto">Foto</span></span></label>`
+            : `<label class="rp-btn" for="foto-${esc(x.id)}">${ICO.camara}<span><span class="largo">Añadir foto del ticket</span><span class="corto">+ Ticket</span></span></label>`}
           <input type="file" id="foto-${esc(x.id)}" class="sr" accept="image/*" data-subir="${esc(x.id)}">
           <button type="button" class="rp-btn peligro" data-borrar-entrada="${esc(x.id)}">${ICO.papelera}<span>Borrar</span></button>
         </div></li>`;
@@ -2334,7 +2394,7 @@
             <label for="dLitros">Litros<input id="dLitros" inputmode="decimal" placeholder="40,5"></label>
             <label for="dImporte">Importe (€)<input id="dImporte" inputmode="decimal" placeholder="60,00"></label>
             <label for="dKm">Cuentakilómetros<input id="dKm" inputmode="numeric" placeholder="125400"></label>
-            <label class="check ancho"><input type="checkbox" id="dLleno" checked> He llenado el depósito</label>
+            <label class="check ancho"><input type="checkbox" id="dLleno"> He llenado el depósito</label>
             <p class="error ancho" id="dError" hidden></p>
             <div class="ancho" id="dEmpresaCaja"></div>
             <button class="boton primario ancho" type="submit">Guardar repostaje</button>
@@ -2391,7 +2451,7 @@
     const el = $('#vMiCoche');
 
     // Descuentos
-    $('#fRegla').addEventListener('submit', (ev) => {
+    $('#fRegla').addEventListener('submit', async (ev) => {
       ev.preventDefault();
       const err = $('#rgError');
       err.hidden = true;
@@ -2404,13 +2464,24 @@
         err.hidden = false;
         return;
       }
-      estado.descuentos.push({
-        id: Date.now().toString(36),
+      const idRegla = Date.now().toString(36);
+      const regla = {
+        id: idRegla,
         marca: /^todas/i.test(marcaTxt) ? '*' : marcaTxt.toUpperCase(),
         tipo,
         valor,
         nombre: $('#rgNombre').value.trim().slice(0, 40),
-      });
+      };
+      const fotoTarjeta = $('#rgFotoNueva')?.files[0];
+      if (fotoTarjeta) {
+        try {
+          await GasoFotos.guardar('dto-' + idRegla, fotoTarjeta);
+          regla.foto = 'dto-' + idRegla;
+        } catch {
+          avisar('No se pudo guardar la foto de la tarjeta.');
+        }
+      }
+      estado.descuentos.push(regla);
       guardarLocal('gm.descuentos', estado.descuentos);
       if (estado.descuentos.length === 1) {
         estado.verDescuento = true;
@@ -2420,14 +2491,50 @@
       pintarMiCoche();
       avisar('Descuento añadido');
     });
+    $('#rgFotoNueva')?.addEventListener('change', (ev) => {
+      const f = ev.target.files[0];
+      $('#rgFotoTxt').innerHTML = f ? `✓ ${esc(f.name || 'Foto lista')}` : 'Foto de la tarjeta (QR) <small>opcional</small>';
+    });
+    $$('[data-ver-tarjeta]', el).forEach((b) => b.addEventListener('click', () => verTarjeta(estado.descuentos.find((g) => g.id === b.dataset.verTarjeta))));
+    $$('[data-foto-regla]', el).forEach((inp) => inp.addEventListener('change', async () => {
+      const f = inp.files[0];
+      const g = estado.descuentos.find((x) => x.id === inp.dataset.fotoRegla);
+      if (!f || !g) return;
+      try {
+        const r = await GasoFotos.guardar('dto-' + g.id, f);
+        g.foto = 'dto-' + g.id;
+        guardarLocal('gm.descuentos', estado.descuentos);
+        pintarMiCoche();
+        avisar(window.Cuenta?.usuario() && !r.enCuenta ? 'Foto guardada en este dispositivo (no se pudo subir a tu cuenta)' : 'Foto de la tarjeta guardada', 3000);
+      } catch {
+        avisar('No se pudo guardar la foto.');
+      }
+    }));
     $$('[data-borrar-regla]', el).forEach((b) =>
       b.addEventListener('click', () => {
+        const g = estado.descuentos.find((x) => x.id === b.dataset.borrarRegla);
+        if (g?.foto) GasoFotos.borrar(g.foto).catch(() => {});
         estado.descuentos = estado.descuentos.filter((g) => g.id !== b.dataset.borrarRegla);
         guardarLocal('gm.descuentos', estado.descuentos);
         refrescar();
         pintarMiCoche();
       })
     );
+
+    // Precio y fecha de compra del coche elegido (para Gastos)
+    $('#fCompra')?.addEventListener('submit', (ev) => {
+      ev.preventDefault();
+      const act = GasoCoches.activo();
+      if (!act) return;
+      const txt = $('#gsCompra').value.trim();
+      const precio = txt ? decimal(txt.replace(/\.(?=\d{3}(\D|$))/g, '')) : null;
+      if (txt && !(precio > 0 && precio < 10000000)) return avisar('Escribe el precio en euros (por ejemplo 12500).');
+      const fecha = $('#gsFechaCompra').value || null;
+      estado.ajustes.coches = (estado.ajustes.coches || []).map((c) => (c.id === act.id ? { ...c, precioCompra: precio ? Math.round(precio * 100) / 100 : null, fechaCompra: fecha } : c));
+      guardarLocal('gm.ajustes', estado.ajustes);
+      pintarMiCoche();
+      avisar(precio ? 'Precio de compra guardado' : 'Precio de compra quitado', 2500);
+    });
 
     // Datos del coche
     const guardarAjustes = () => {
@@ -2457,6 +2564,229 @@
     $('#irRepostajes')?.addEventListener('click', () => cambiarPestana('repostajes'));
   }
 
+
+  /* ---------- Tarjeta de cliente (foto del QR) de un descuento ---------- */
+  function verTarjeta(g) {
+    if (!g?.foto) return;
+    document.body.classList.add('viendo-tarjeta'); // fondo claro para que el lector la lea bien
+    GasoFotos.ver(g.foto, `Tarjeta ${g.nombre || (g.marca === '*' ? 'de descuento' : g.marca)}`);
+    const quitar = () => {
+      if (!$('.visor-foto')) {
+        document.body.classList.remove('viendo-tarjeta');
+        clearInterval(t);
+      }
+    };
+    const t = setInterval(quitar, 400);
+  }
+  document.addEventListener('click', (ev) => {
+    const b = ev.target.closest('[data-ver-tarjeta-ficha]');
+    if (b) verTarjeta(estado.descuentos.find((g) => g.id === b.dataset.verTarjetaFicha));
+  });
+  const tarjetasPara = (e) => estado.descuentos.filter((g) => g.foto && (g.marca === '*' || norm(e.rotulo).includes(norm(g.marca))));
+
+  /* ---------- Buscador de gasolineras (para apuntar o editar un repostaje) ---------- */
+  function hojaModal(html, clase = '') {
+    const capa = document.createElement('div');
+    capa.className = 'hoja-modal ' + clase;
+    capa.setAttribute('role', 'dialog');
+    capa.setAttribute('aria-modal', 'true');
+    capa.innerHTML = `<div class="hoja-caja">${html}</div>`;
+    document.body.appendChild(capa);
+    document.body.classList.add('con-hoja');
+    const cerrar = () => {
+      capa.remove();
+      if (!$('.hoja-modal')) document.body.classList.remove('con-hoja');
+      document.removeEventListener('keydown', tecla);
+    };
+    const tecla = (ev) => ev.key === 'Escape' && capa === $$('.hoja-modal').pop() && (capa._alCerrar?.(), cerrar());
+    document.addEventListener('keydown', tecla);
+    capa.addEventListener('click', (ev) => ev.target === capa && (capa._alCerrar?.(), cerrar()));
+    capa.cerrar = cerrar;
+    return capa;
+  }
+
+  // Devuelve la gasolinera elegida, null para «sin indicar» o undefined si se cancela
+  function elegirGasolinera({ permitirNinguna = false } = {}) {
+    return new Promise((ok) => {
+      const capa = hojaModal(`
+        <div class="hoja-cab"><h3>Elegir gasolinera</h3><button type="button" class="hoja-x" aria-label="Cerrar">✕</button></div>
+        <label class="hoja-buscar" for="egQ">${ICO.lupa}<input id="egQ" type="search" autocomplete="off" placeholder="Nombre, calle o pueblo (ej.: Repsol Badajoz)"></label>
+        <p class="texto-ayuda" id="egAyuda"></p>
+        <ul class="eg-lista" id="egLista" role="listbox"></ul>
+        ${permitirNinguna ? '<button type="button" class="boton" id="egNinguna">Sin indicar gasolinera</button>' : ''}`, 'hoja-gasolineras');
+      let hecho = false;
+      const fin = (v) => {
+        if (hecho) return;
+        hecho = true;
+        capa.cerrar();
+        ok(v);
+      };
+      capa._alCerrar = () => fin(undefined);
+      $('.hoja-x', capa).addEventListener('click', () => fin(undefined));
+      $('#egNinguna', capa)?.addEventListener('click', () => fin(null));
+      const yo = estado.yo;
+      const pintar = () => {
+        const q = norm($('#egQ', capa).value).trim();
+        let xs;
+        if (!q) {
+          const ids = [...new Set([...estado.recientes, ...estado.favoritas])].filter((id) => estado.porId.has(id)).map((id) => estado.porId.get(id));
+          const cerca = yo ? estado.estaciones.map((e) => [e, distanciaKm(yo, e)]).sort((a, b) => a[1] - b[1]).slice(0, 12).map(([e]) => e) : [];
+          xs = [...new Map([...ids, ...cerca].map((e) => [e.id, e])).values()].slice(0, 20);
+          $('#egAyuda', capa).textContent = ids.length || cerca.length ? (cerca.length ? 'Tus recientes y favoritas, y las más cercanas a ti.' : 'Tus recientes y favoritas.') : 'Escribe para buscar entre todas las gasolineras.';
+        } else {
+          const palabras = q.split(/\s+/).filter(Boolean);
+          xs = estado.estaciones.filter((e) => {
+            const t = e._busca || (e._busca = norm(`${e.rotulo} ${e.direccion} ${e.localidad} ${e.municipio || ''} ${e.provincia || ''} ${e.cp || ''}`));
+            return palabras.every((p) => t.includes(p));
+          });
+          if (yo) xs.sort((a, b) => distanciaKm(yo, a) - distanciaKm(yo, b));
+          $('#egAyuda', capa).textContent = xs.length ? `${xs.length > 40 ? 'Más de 40' : xs.length} resultado${xs.length === 1 ? '' : 's'}${yo ? ', de más cerca a más lejos' : ''}.` : 'No hay ninguna con ese nombre. Prueba con la marca y el pueblo.';
+          xs = xs.slice(0, 40);
+        }
+        $('#egLista', capa).innerHTML = xs.map((e) => `<li><button type="button" data-eg="${esc(e.id)}"><b>${esc(e.rotulo)}</b><span>${esc(e.direccion)} · ${esc(e.localidad)}${yo ? ` · ${distanciaKm(yo, e).toFixed(1).replace('.', ',')} km` : ''}</span></button></li>`).join('');
+      };
+      let t = null;
+      $('#egQ', capa).addEventListener('input', () => {
+        clearTimeout(t);
+        t = setTimeout(pintar, 120);
+      });
+      $('#egLista', capa).addEventListener('click', (ev) => {
+        const b = ev.target.closest('[data-eg]');
+        if (b) fin(estado.porId.get(b.dataset.eg));
+      });
+      pintar();
+      setTimeout(() => $('#egQ', capa).focus(), 50);
+    });
+  }
+
+  /* ---------- Vínculo entre un repostaje y una medición de consumo (Mi coche › Consumo) ---------- */
+  function medicionDeRepostaje(idRepo) {
+    for (const c of estado.ajustes.coches || []) {
+      const m = (c.mediciones || []).find((x) => x.repostaje === idRepo);
+      if (m) return { ...m, coche: c.id };
+    }
+    return null;
+  }
+  function cocheDeRepostaje(x) {
+    const coches = GasoCoches.lista();
+    return coches.find((c) => MiCoche.esDelCoche(x, c.id, coches)) || null;
+  }
+  function guardarMediciones(cocheId, fn) {
+    estado.ajustes.coches = (estado.ajustes.coches || []).map((c) => (c.id === cocheId ? { ...c, mediciones: fn(c.mediciones || []) } : c));
+    // La calculadora usa el consumo medio del coche elegido
+    const act = estado.ajustes.coches.find((c) => c.id === (estado.ajustes.cocheActivo || estado.ajustes.coches[0]?.id));
+    const media = act ? MiCoche.consumoMedio(act.mediciones) : null;
+    if (media) estado.ajustes.consumo = media;
+    guardarLocal('gm.ajustes', estado.ajustes);
+  }
+
+  /* ---------- Editar un repostaje (al tocarlo) ---------- */
+  function abrirEditorRepostaje(id) {
+    const x = estado.diario.find((y) => y.id === id);
+    if (!x) return;
+    const coches = GasoCoches.lista();
+    const coche = cocheDeRepostaje(x);
+    let est = x.estacion ? estado.porId.get(x.estacion) || null : null;
+    let nombreSinDatos = !est && x.nombre ? x.nombre : '';
+    const med = medicionDeRepostaje(x.id);
+    const capa = hojaModal(`
+      <div class="hoja-cab"><h3>Editar repostaje</h3><button type="button" class="hoja-x" aria-label="Cerrar">✕</button></div>
+      <form class="form-diario er-form" id="fEditarRepo" novalidate>
+        <div class="ancho er-gasolinera">
+          <span class="er-etq">Gasolinera</span>
+          <button type="button" class="er-elegir" id="erEstacion"></button>
+        </div>
+        ${coches.length > 1 ? `<label for="erCoche" class="ancho">Coche<select id="erCoche">${coches.map((c) => `<option value="${esc(c.id)}" ${c.id === coche?.id ? 'selected' : ''}>${esc(GasoCoches.nombre(c))}</option>`).join('')}</select></label>` : ''}
+        <label for="erFecha">Fecha<input id="erFecha" type="date" value="${esc(x.fecha)}" max="${hoyISO()}"></label>
+        <label for="erComb">Combustible<select id="erComb">${Object.keys(NOMBRES).map((k) => `<option value="${k}" ${k === x.combustible ? 'selected' : ''}>${NOMBRES[k]}</option>`).join('')}</select></label>
+        <label for="erLitros">Litros<input id="erLitros" inputmode="decimal" value="${String(x.litros).replace('.', ',')}"></label>
+        <label for="erImporte">Importe (€)<input id="erImporte" inputmode="decimal" value="${x.importe != null ? x.importe.toFixed(2).replace('.', ',') : ''}" placeholder="60,00"></label>
+        <label for="erKm" class="ancho">Cuentakilómetros<input id="erKm" inputmode="numeric" value="${x.km || ''}" placeholder="125400"></label>
+        <label class="check ancho"><input type="checkbox" id="erLleno" ${x.lleno ? 'checked' : ''}> He llenado el depósito</label>
+        <section class="ancho er-consumo">
+          <div class="er-consumo-cab">${ICO.enlace}<b>Consumo con este repostaje</b></div>
+          ${med
+            ? `<p class="er-med">Vinculado a una medición de consumo: <b>${num1(med.consumo)} l/100 km</b> (${String(med.litros).replace('.', ',')} L en ${med.km.toLocaleString('es-ES')} km).</p>
+               <button type="button" class="enlace texto-peligro" id="erDesvincular">Quitar el vínculo (y esa medición)</button>`
+            : `<p class="texto-ayuda">Si llenaste el depósito y pusiste a cero el parcial en el repostaje anterior, escribe los km que marcaba y calculamos el consumo con estos litros. Se guarda en Mi coche › Consumo.</p>
+               <label for="erKmParcial">Km recorridos desde el anterior llenado<input id="erKmParcial" inputmode="decimal" placeholder="700"></label>`}
+        </section>
+        <p class="error ancho" id="erError" hidden></p>
+        <div class="ancho er-botones">
+          <button type="submit" class="boton primario">Guardar cambios</button>
+          <button type="button" class="boton" id="erCancelar">Cancelar</button>
+        </div>
+      </form>`, 'hoja-editar-repo');
+    const pintarEst = () => {
+      $('#erEstacion', capa).innerHTML = est
+        ? `${ICO.pin}<span><b>${esc(est.rotulo)}</b><small>${esc(est.direccion)} · ${esc(est.localidad)}</small></span><em>Cambiar</em>`
+        : `${ICO.pin}<span><b>${nombreSinDatos ? esc(nombreSinDatos) : 'Sin indicar'}</b><small>${nombreSinDatos ? 'Toca para elegirla de la lista' : 'Toca para añadir la gasolinera'}</small></span><em>${nombreSinDatos ? 'Cambiar' : 'Añadir'}</em>`;
+    };
+    pintarEst();
+    $('#erEstacion', capa).addEventListener('click', async () => {
+      const e = await elegirGasolinera({ permitirNinguna: true });
+      if (e === undefined) return;
+      est = e;
+      nombreSinDatos = '';
+      pintarEst();
+      // Si no habías puesto importe, se calcula con el precio de esa gasolinera
+      const litros = decimal($('#erLitros', capa).value);
+      const c = $('#erComb', capa).value;
+      if (est && litros && !$('#erImporte', capa).value.trim() && base(est, c) != null) $('#erImporte', capa).value = (litros * base(est, c)).toFixed(2).replace('.', ',');
+    });
+    $('.hoja-x', capa).addEventListener('click', capa.cerrar);
+    $('#erCancelar', capa).addEventListener('click', capa.cerrar);
+    $('#erDesvincular', capa)?.addEventListener('click', () => {
+      guardarMediciones(med.coche, (ms) => ms.filter((m) => m.id !== med.id));
+      capa.cerrar();
+      pintarRepostajes();
+      avisar('Vínculo quitado', 2500);
+    });
+    $('#fEditarRepo', capa).addEventListener('submit', (ev) => {
+      ev.preventDefault();
+      const err = $('#erError', capa);
+      const fallo = (m) => { err.textContent = m; err.hidden = false; };
+      const litros = decimal($('#erLitros', capa).value);
+      const importe = $('#erImporte', capa).value.trim() ? decimal($('#erImporte', capa).value) : null;
+      const km = $('#erKm', capa).value.trim() ? decimal($('#erKm', capa).value.replace(/\./g, '')) : null;
+      const fecha = $('#erFecha', capa).value || x.fecha;
+      if (!litros || litros <= 0 || litros > 300) return fallo('Indica los litros que echaste (por ejemplo, 40,5).');
+      if (importe != null && (importe < 0 || importe > 1000)) return fallo('El importe no parece correcto.');
+      if (km != null && (km < 0 || km > 3000000)) return fallo('Los kilómetros no parecen correctos.');
+      const kmParcialTxt = $('#erKmParcial', capa)?.value.trim();
+      const kmParcial = kmParcialTxt ? decimal(kmParcialTxt) : null;
+      if (kmParcialTxt && !(kmParcial > 0 && kmParcial <= 100000)) return fallo('Escribe los km recorridos desde el anterior llenado (por ejemplo 700).');
+      Object.assign(x, {
+        fecha,
+        estacion: est ? est.id : null,
+        nombre: est ? nombreEstacion(est) : nombreSinDatos,
+        combustible: $('#erComb', capa).value,
+        litros,
+        importe,
+        km: km ? Math.round(km) : null,
+        lleno: $('#erLleno', capa).checked,
+        ...($('#erCoche', capa) ? { coche: $('#erCoche', capa).value } : {}),
+      });
+      guardarLocal('gm.diario', estado.diario);
+      let msg = 'Repostaje actualizado';
+      if (kmParcial) {
+        const c = cocheDeRepostaje(x);
+        if (c) {
+          const consumo = MiCoche.consumo(litros, kmParcial);
+          guardarMediciones(c.id, (ms) => [...ms, { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), fecha, litros, km: kmParcial, consumo, repostaje: x.id }].slice(-100));
+          msg += ` · consumo ${num1(consumo)} l/100 km guardado en Mi coche`;
+        }
+      } else if (med) {
+        // Si cambiaste los litros, la medición vinculada se actualiza
+        guardarMediciones(med.coche, (ms) => ms.map((m) => (m.id === med.id ? { ...m, litros, consumo: MiCoche.consumo(litros, m.km) } : m)));
+      }
+      capa.cerrar();
+      pintarRepostajes();
+      avisar(msg, 3500);
+    });
+  }
+  window.GasoRepostajes = { elegirGasolinera: (o) => elegirGasolinera(o), medicionDeRepostaje: (id) => medicionDeRepostaje(id), abrirEditor: (id) => abrirEditorRepostaje(id) };
+
   function activarRepostajes() {
     const el = $('#vRepostajes');
 
@@ -2473,6 +2803,18 @@
       $('#dImporte').value = (litros * pl).toFixed(2).replace('.', ',');
     };
     $('#dImporte').addEventListener('input', () => (importeManual = $('#dImporte').value.trim() !== ''));
+    // «Buscar otra gasolinera…» abre el buscador con todas
+    let estacionPrevia = $('#dEstacion').value;
+    $('#dEstacion').addEventListener('change', async () => {
+      const sel = $('#dEstacion');
+      if (sel.value !== '__buscar') return (estacionPrevia = sel.value);
+      sel.value = estacionPrevia;
+      const e = await elegirGasolinera();
+      if (!e) return;
+      if (!sel.querySelector(`option[value="${CSS.escape(e.id)}"]`)) sel.insertAdjacentHTML('afterbegin', `<option value="${esc(e.id)}">${esc(nombreEstacion(e))}</option>`);
+      sel.value = estacionPrevia = e.id;
+      sel.dispatchEvent(new Event('input'));
+    });
     ['#dLitros', '#dEstacion', '#dComb'].forEach((s) => $(s).addEventListener('input', sugerirImporte));
 
     $('#fDiario').addEventListener('submit', async (ev) => {
@@ -2546,11 +2888,26 @@
       $(`[data-entrada="${idNuevo}"]`)?.scrollIntoView({ block: 'center' });
     });
 
+    // Tocar un repostaje lo abre para editarlo (menos sus botones)
+    $$('[data-editar-repo]', el).forEach((li) => {
+      const abrir = (ev) => {
+        if (ev.target.closest('button, label, input, a')) return;
+        abrirEditorRepostaje(li.dataset.editarRepo);
+      };
+      li.addEventListener('click', abrir);
+      li.addEventListener('keydown', (ev) => {
+        if ((ev.key === 'Enter' || ev.key === ' ') && ev.target === li) {
+          ev.preventDefault();
+          abrirEditorRepostaje(li.dataset.editarRepo);
+        }
+      });
+    });
+
     $$('[data-borrar-entrada]', el).forEach((b) =>
       b.addEventListener('click', () => {
         if (b.dataset.paso !== 'confirmar') {
           b.dataset.paso = 'confirmar';
-          (b.querySelector('span') || b).textContent = '¿Seguro? Pulsa otra vez';
+          (b.querySelector('span') || b).textContent = '¿Seguro?';
           return;
         }
         const x = estado.diario.find((y) => y.id === b.dataset.borrarEntrada);
@@ -2720,6 +3077,7 @@
     if (estado.pestana === 'micoche') pintarMiCoche();
     if (estado.pestana === 'repostajes') pintarRepostajes();
     window.Cuenta?.refrescarFotoPerfil?.(); // la foto de perfil pudo cambiar en otro dispositivo
+    window.GasoMantenimiento?.pintarTalleresMapa();
   }
   // Al cerrar sesión o entrar con otra cuenta, los datos de la anterior no pasan a la nueva
   function vaciarLocal() {
@@ -2800,6 +3158,7 @@
   };
 
   window.Cuenta?.repintarBoton?.(); // con la foto de perfil, ahora que GasoApp existe
+  window.GasoMantenimiento?.pintarTalleresMapa(); // tus talleres en el mapa
 
   // Accesos directos del icono de la app: ?accion=cerca | ruta | micoche | avisos
   function accionInicial() {

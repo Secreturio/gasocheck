@@ -309,6 +309,11 @@ const MIGRACIONES = [
   CREATE INDEX incidentes_votos_quien ON incidentes_votos(quien, fecha);
   CREATE INDEX incidentes_quien ON incidentes(quien, creado);
   `,
+  // 7: avisos del GPS que su autor puede editar o quitar (la clave se guarda cifrada)
+  `
+  ALTER TABLE incidentes ADD COLUMN clave TEXT;
+  ALTER TABLE incidentes ADD COLUMN retirado INTEGER NOT NULL DEFAULT 0;
+  `,
 ];
 
 export const CLAVE_BD = 'bd/gasocheck.sqlite';

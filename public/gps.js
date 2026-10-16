@@ -1291,10 +1291,37 @@
   const cab = () => ({ 'Content-Type': 'application/json', ...(window.Cuenta?.cabeceras?.() || {}) });
   st.incidentes = [];
   st.misAvisos = new Set(leer('gm.gps.misAvisos', []));
+  // Clave de cada aviso creado desde este dispositivo: permite editarlo o quitarlo aunque cambie la conexión
+  st.clavesAvisos = leer('gm.gps.claves', {});
+  // Avisos en los que ya has respondido «¿sigue ahí?» (no se vuelve a preguntar)
+  st.votados = new Set(leer('gm.gps.votados', []));
+  const guardarVotado = (id) => {
+    st.votados.add(id);
+    guardar('gm.gps.votados', [...st.votados].slice(-200));
+  };
+  const esMio = (i) => i.mio || st.misAvisos.has(i.id);
+  const haceTxt = (t) => {
+    const m = Math.max(1, Math.round((Date.now() - t) / 60000));
+    return m >= 60 ? `hace ${Math.round(m / 60)} h` : `hace ${m} min`;
+  };
 
   function limpiarIncidentes() {
     if (st.capaInc) A().mapa.removeLayer(st.capaInc);
     st.capaInc = null;
+  }
+
+  // Ventanita al tocar un aviso: si es tuyo, cambiar el tipo o quitarlo; si no, ¿sigue ahí?
+  function popupIncidente(i) {
+    const t = INC[i.tipo] || { n: i.nombre, e: '❗' };
+    const info = `<div class="gps-inc-pop-cab"><span class="e">${t.e}</span><div><b>${esc(t.n)}</b><small>${haceTxt(i.creado)}${i.confirmaciones ? ` · ${i.confirmaciones} confirmación${i.confirmaciones > 1 ? 'es' : ''}` : ''}${i.confirmado ? ' · ✔ confirmado' : ''}</small></div></div>`;
+    if (esMio(i)) {
+      return `${info}<p class="gps-inc-pop-txt">Es tu aviso. ¿Te equivocaste de tipo?</p>
+        <div class="gps-inc-tipos">${Object.entries(INC).map(([k, v]) => `<button type="button" data-inc-tipo="${k}" aria-pressed="${k === i.tipo}" title="${esc(v.n)}"><span>${v.e}</span>${esc(v.n)}</button>`).join('')}</div>
+        <button type="button" class="gps-inc-quitar" data-inc-quitar>🗑 Quitar mi aviso</button>`;
+    }
+    if (st.votados.has(i.id)) return `${info}<p class="gps-inc-pop-txt">Gracias, ya nos dijiste si seguía ahí.</p>`;
+    return `${info}<p class="gps-inc-pop-txt">¿Sigue ahí?</p>
+      <div class="gps-inc-voto"><button type="button" data-inc-si>Sí, sigue</button><button type="button" data-inc-no>Ya no está</button></div>`;
   }
 
   function pintarIncidentes() {
@@ -1303,11 +1330,18 @@
     const g = L.layerGroup();
     for (const i of st.incidentes) {
       const t = INC[i.tipo] || { n: i.nombre, e: '❗', c: '#e5484d' };
-      const hace = Math.max(1, Math.round((Date.now() - i.creado) / 60000));
       panes();
-      L.marker([i.lat, i.lng], { pane: 'gpsTop', icon: L.divIcon({ className: '', html: `<div class="gps-inc${i.confirmado ? ' confirmado' : ''}" style="--c:${t.c}"><span>${t.e}</span></div>`, iconSize: [34, 34], iconAnchor: [17, 34] }), zIndexOffset: 900 })
-        .bindTooltip(`${esc(t.n)}${i.confirmado ? ' · ✔ confirmado' : ''} · hace ${hace >= 60 ? Math.round(hace / 60) + ' h' : hace + ' min'}${i.confirmaciones ? ` · ${i.confirmaciones} confirmación${i.confirmaciones > 1 ? 'es' : ''}` : ''}`)
+      const m = L.marker([i.lat, i.lng], { pane: 'gpsTop', icon: L.divIcon({ className: '', html: `<div class="gps-inc${i.confirmado ? ' confirmado' : ''}${esMio(i) ? ' mio' : ''}" style="--c:${t.c}"><span>${t.e}</span></div>`, iconSize: [34, 34], iconAnchor: [17, 34] }), zIndexOffset: 900 })
+        .bindTooltip(`${esc(t.n)}${esMio(i) ? ' · tu aviso' : ''}${i.confirmado ? ' · ✔ confirmado' : ''} · ${haceTxt(i.creado)}`)
+        .bindPopup(() => popupIncidente(i), { className: 'gps-inc-pop', maxWidth: 300, minWidth: 240, pane: 'gpsTop' })
         .addTo(g);
+      m.on('popupopen', (ev) => {
+        const el = ev.popup.getElement();
+        el.querySelectorAll('[data-inc-tipo]').forEach((b) => (b.onclick = () => (m.closePopup(), editarIncidente(i.id, { tipo: b.dataset.incTipo }))));
+        el.querySelector('[data-inc-quitar]')?.addEventListener('click', () => (m.closePopup(), quitarIncidente(i.id)));
+        el.querySelector('[data-inc-si]')?.addEventListener('click', () => (m.closePopup(), votarIncidente(i.id, true)));
+        el.querySelector('[data-inc-no]')?.addEventListener('click', () => (m.closePopup(), votarIncidente(i.id, false)));
+      });
     }
     st.capaInc = g.addTo(A().mapa);
   }
@@ -1320,7 +1354,8 @@
       s_ = Math.min(s_, la); n = Math.max(n, la); w = Math.min(w, ln); e = Math.max(e, ln);
     }
     const m = 0.02;
-    const q = `s=${(s_ - m).toFixed(4)}&w=${(w - m).toFixed(4)}&n=${(n + m).toFixed(4)}&e=${(e + m).toFixed(4)}`;
+    const claves = Object.values(st.clavesAvisos).slice(-20).join(',');
+    const q = `s=${(s_ - m).toFixed(4)}&w=${(w - m).toFixed(4)}&n=${(n + m).toFixed(4)}&e=${(e + m).toFixed(4)}${claves ? '&claves=' + encodeURIComponent(claves) : ''}`;
     try {
       const r = await fetch(`${API()}/api/incidentes?${q}`, { headers: cab(), signal: AbortSignal.timeout(10000) });
       if (!r.ok) return;
@@ -1333,19 +1368,52 @@
     }
   }
 
+  function recordarMio(d) {
+    st.misAvisos.add(d.incidente.id);
+    guardar('gm.gps.misAvisos', [...st.misAvisos].slice(-50));
+    if (d.clave) {
+      st.clavesAvisos[d.incidente.id] = d.clave;
+      // Solo se guardan las de los últimos 50 avisos
+      const ids = Object.keys(st.clavesAvisos);
+      if (ids.length > 50) for (const k of ids.slice(0, ids.length - 50)) delete st.clavesAvisos[k];
+      guardar('gm.gps.claves', st.clavesAvisos);
+    }
+  }
+
+  // Barra rápida justo después de avisar: cambiar el tipo o quitarlo si te equivocaste
+  function barraMiAviso(i) {
+    const el = $('#gnPregunta');
+    if (!el) return;
+    const t = INC[i.tipo] || { n: i.nombre, e: '❗' };
+    el.innerHTML = `<span>${t.e} Has avisado: ${esc(t.n.toLowerCase())}</span><button type="button" data-cambiar>Cambiar tipo</button><button type="button" data-quitar>Quitar</button>`;
+    el.hidden = false;
+    el.querySelector('[data-cambiar]').onclick = () => {
+      el.hidden = true;
+      abrirReporte(i.id);
+    };
+    el.querySelector('[data-quitar]').onclick = () => {
+      el.hidden = true;
+      quitarIncidente(i.id);
+    };
+    clearTimeout(st.timerMiAviso);
+    st.timerMiAviso = setTimeout(() => (el.hidden = true), 12000);
+  }
+
   async function enviarIncidente(tipo) {
     const nav = st.nav;
+    const editando = st.editandoInc;
     cerrarReporte();
+    if (editando) return editarIncidente(editando, { tipo });
     if (!nav?.pos) return A().avisar('Todavía no tenemos tu posición. Espera un momento y vuelve a intentarlo.');
     try {
       const r = await fetch(`${API()}/api/incidentes`, { method: 'POST', headers: cab(), body: JSON.stringify({ tipo, lat: nav.pos[0], lng: nav.pos[1], rumbo: nav.rumbo }) });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) return A().avisar(d.error || 'No se pudo enviar el aviso.');
       if (d.incidente) {
-        st.misAvisos.add(d.incidente.id);
-        guardar('gm.gps.misAvisos', [...st.misAvisos].slice(-50));
+        if (!d.existente) recordarMio(d);
         st.incidentes = [d.incidente, ...st.incidentes.filter((x) => x.id !== d.incidente.id)];
         pintarIncidentes();
+        if (!d.existente) barraMiAviso(d.incidente);
       }
       const pts = A().conSesion() ? (d.existente ? ' +2 puntos' : ' +5 puntos') : '';
       A().avisar((d.existente ? 'Gracias: has confirmado un aviso que ya estaba.' : 'Gracias. Tu aviso ayudará a otros conductores.') + pts, 4000);
@@ -1355,29 +1423,67 @@
     }
   }
 
+  async function editarIncidente(id, cambios) {
+    try {
+      const r = await fetch(`${API()}/api/incidentes/${encodeURIComponent(id)}`, { method: 'PUT', headers: cab(), body: JSON.stringify({ ...cambios, clave: st.clavesAvisos[id] }) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) return A().avisar(d.error || 'No se pudo cambiar el aviso.');
+      st.incidentes = st.incidentes.map((x) => (x.id === id ? { ...d.incidente, mio: true } : x));
+      pintarIncidentes();
+      A().avisar(`Aviso cambiado a ${(INC[d.incidente.tipo]?.n || d.incidente.nombre).toLowerCase()}.`, 3000);
+    } catch {
+      A().avisar('Sin conexión: no se pudo cambiar el aviso.');
+    }
+  }
+
+  async function quitarIncidente(id) {
+    try {
+      const r = await fetch(`${API()}/api/incidentes/${encodeURIComponent(id)}/quitar`, { method: 'POST', headers: cab(), body: JSON.stringify({ clave: st.clavesAvisos[id] }) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) return A().avisar(d.error || 'No se pudo quitar el aviso.');
+      st.incidentes = st.incidentes.filter((x) => x.id !== id);
+      delete st.clavesAvisos[id];
+      guardar('gm.gps.claves', st.clavesAvisos);
+      pintarIncidentes();
+      A().avisar('Aviso quitado.', 2500);
+    } catch {
+      A().avisar('Sin conexión: no se pudo quitar el aviso.');
+    }
+  }
+
   async function votarIncidente(id, sigue) {
     $('#gnPregunta').hidden = true;
+    guardarVotado(id);
     try {
       const r = await fetch(`${API()}/api/incidentes/${encodeURIComponent(id)}/voto`, { method: 'POST', headers: cab(), body: JSON.stringify({ sigue }) });
       const d = await r.json().catch(() => ({}));
       if (r.ok) {
         st.incidentes = d.incidente ? st.incidentes.map((x) => (x.id === id ? d.incidente : x)) : st.incidentes.filter((x) => x.id !== id);
         pintarIncidentes();
-        A().avisar(`Gracias por confirmarlo.${A().conSesion() ? ' +2 puntos' : ''}`, 2500);
+        const pts = A().conSesion() ? ' +2 puntos' : '';
+        A().avisar(d.quitado ? `Gracias. Varios conductores dicen que ya no está, así que lo hemos quitado.${pts}` : sigue ? `Gracias por confirmarlo.${pts}` : `Gracias. Si otros conductores dicen lo mismo, se quitará.${pts}`, 3500);
+      } else if (r.status === 404) {
+        st.incidentes = st.incidentes.filter((x) => x.id !== id);
+        pintarIncidentes();
       }
     } catch {
       /* sin conexión */
     }
   }
 
-  function abrirReporte() {
+  // editarId: se abre para cambiar el tipo de un aviso tuyo
+  function abrirReporte(editarId = null) {
     const el = $('#gnReporte');
+    st.editandoInc = typeof editarId === 'string' ? editarId : null;
+    const tit = el.querySelector('.gps-reporte-tit');
+    if (tit) tit.textContent = st.editandoInc ? '¿Qué es en realidad?' : tit.dataset.normal || tit.textContent;
     el.hidden = false;
     el.querySelector('button[data-inc]')?.focus();
   }
   function cerrarReporte() {
     const el = $('#gnReporte');
     if (el) el.hidden = true;
+    st.editandoInc = null;
   }
 
   // Durante la navegación: avisa de los incidentes que hay por delante y pregunta si siguen al pasar
@@ -1399,7 +1505,7 @@
       const delante = pos.km - nav.kmAct;
       if (delante > 0 && delante < 2 && (!proximo || delante < proximo.delante)) proximo = { i, delante };
       // Acabas de pasar: ¿sigue ahí?
-      if (delante < -0.02 && delante > -0.4 && !nav.preguntados.has(i.id) && !st.misAvisos.has(i.id)) {
+      if (delante < -0.02 && delante > -0.4 && !nav.preguntados.has(i.id) && !esMio(i) && !st.votados.has(i.id)) {
         nav.preguntados.add(i.id);
         const t = INC[i.tipo] || { n: i.nombre, e: '❗' };
         const el = $('#gnPregunta');
@@ -1512,7 +1618,7 @@
         <button type="button" class="gps-avisar" id="gnAvisar" aria-label="Avisar de un incidente" title="Avisar de un incidente"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5L2.5 20h19z"/><path d="M12 10v4.5M12 17.2v.3"/></svg><span>Avisar</span></button>
         <div class="gps-reporte" id="gnReporte" role="dialog" aria-label="Avisar de un incidente" hidden>
           <div class="gps-reporte-caja">
-            <h3>¿Qué hay en la vía?</h3>
+            <h3 class="gps-reporte-tit" data-normal="¿Qué hay en la vía?">¿Qué hay en la vía?</h3>
             <div class="gps-reporte-grid">${Object.entries(INC).map(([k, t]) => `<button type="button" data-inc="${k}" style="--c:${t.c}"><span>${t.e}</span>${t.n}</button>`).join('')}</div>
             <button type="button" class="boton gps-reporte-cancelar" id="gnReporteCancelar">Cancelar</button>
             <p class="texto-ayuda">El aviso se envía con tu posición actual y lo verán los demás conductores durante un rato. Avisa solo cuando sea seguro (mejor si lo hace tu acompañante).</p>
@@ -1526,6 +1632,7 @@
           <button type="button" class="gps-salir" id="gnSalir" aria-label="Terminar navegación">✕</button>
           <div class="gps-eta"><b id="gnEta"></b><span id="gnResto"></span><span class="gps-directo" id="gnDirecto" hidden>📡 En directo · <button type="button" id="gnDirectoParar">Parar</button></span></div>
           <button type="button" class="gps-voz gps-comp-nav" id="gnCompartir" aria-label="Compartir hora de llegada" title="Compartir hora de llegada"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="18" cy="5" r="2.5"/><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="19" r="2.5"/><path d="M8.2 10.8l7.6-4.4M8.2 13.2l7.6 4.4"/></svg></button>
+          <button type="button" class="gps-voz gps-vista" id="gnVista" aria-pressed="true" aria-label="Vista de conducción (desde detrás de la flecha)" title="Vista de conducción / mapa plano">3D</button>
           <button type="button" class="gps-voz" id="gnVoz" aria-pressed="true" aria-label="Voz"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9z"/><path class="ondas" d="M16 9a4 4 0 0 1 0 6M18.5 6.5a7.5 7.5 0 0 1 0 11"/></svg></button>
         </div>`;
       $('.mapa-zona').appendChild(el);
@@ -1556,12 +1663,26 @@
         if (!st.nav) return;
         st.nav.seguir = true;
         $('#gnCentrar').hidden = true;
+        aplicarVista(st.nav, true);
         if (st.nav.pos) A().mapa.setView(st.nav.pos, 17);
+      });
+      $('#gnVista').addEventListener('click', () => {
+        st.vista3d = !st.vista3d;
+        guardar('gm.gps.3d', st.vista3d);
+        $('#gnVista').setAttribute('aria-pressed', String(st.vista3d));
+        $('#gnVista').textContent = st.vista3d ? '3D' : '2D';
+        if (st.nav) {
+          st.nav.seguir = true;
+          $('#gnCentrar').hidden = true;
+          aplicarVista(st.nav, true);
+        }
       });
       $('#gnVoz').addEventListener('click', () => {
         if (!st.nav) return;
         st.nav.voz = !st.nav.voz;
         $('#gnVoz').setAttribute('aria-pressed', String(st.nav.voz));
+    $('#gnVista').setAttribute('aria-pressed', String(st.vista3d));
+    $('#gnVista').textContent = st.vista3d ? '3D' : '2D';
         if (!st.nav.voz) speechSynthesis?.cancel();
       });
     }
@@ -1641,7 +1762,8 @@
       if (f) f.style.transform = `rotate(${rumbo}deg)`;
     }
     nav.prev = p;
-    if (nav.seguir) app.mapa.setView(p, Math.max(app.mapa.getZoom(), 16), { animate: true });
+    aplicarVista(nav);
+    if (nav.seguir) app.mapa.setView(p, Math.max(app.mapa.getZoom(), nav3d() ? 17 : 16), { animate: true });
 
     // Próxima maniobra
     const kmAct = nav.kmAct;
@@ -1786,7 +1908,39 @@
   function alArrastrar() {
     if (!st.nav) return;
     st.nav.seguir = false;
+    aplicarVista(st.nav, true); // al mover el mapa con el dedo, vuelve a verse plano y con el norte arriba
     $('#gnCentrar').hidden = false;
+  }
+
+  /* ---------- Vista de conducción: desde detrás de la flecha, con tu dirección hacia arriba ----------
+     Leaflet no gira ni inclina el mapa, así que se hace con CSS: el contenedor del mapa se agranda,
+     se gira en sentido contrario a tu rumbo y se inclina hacia atrás. La flecha queda abajo, apuntando arriba. */
+  st.vista3d = leer('gm.gps.3d', true);
+  const nav3d = () => document.body.classList.contains('nav-3d');
+  function aplicarVista(nav, forzar = false) {
+    const cont = A().mapa.getContainer();
+    const activa = Boolean(nav && st.vista3d && nav.seguir && nav.rumbo != null);
+    const antes = nav3d();
+    if (activa) {
+      // Giro acumulado (para no dar la vuelta entera al pasar de 359° a 0°)
+      const r = nav.rumbo;
+      if (nav.giro == null) nav.giro = r;
+      else {
+        let d = r - (((nav.giro % 360) + 360) % 360);
+        if (d > 180) d -= 360;
+        if (d < -180) d += 360;
+        nav.giro += d;
+      }
+      cont.style.setProperty('--giro', `${-nav.giro}deg`);
+      cont.style.setProperty('--contragiro', `${nav.giro}deg`);
+    }
+    if (activa !== antes || forzar) {
+      document.body.classList.toggle('nav-3d', activa);
+      if (!activa) cont.style.removeProperty('--giro'), cont.style.removeProperty('--contragiro');
+      // El tamaño del mapa cambia: Leaflet tiene que recalcularlo y volver a centrar
+      A().mapa.invalidateSize({ pan: false });
+      if (nav?.pos && nav.seguir) A().mapa.setView(nav.pos, Math.max(A().mapa.getZoom(), activa ? 17 : 16), { animate: false });
+    }
   }
 
   function terminarNavegacion() {
@@ -1811,6 +1965,11 @@
     }
     A().mapa.off('dragstart', alArrastrar);
     st.nav = null;
+    if (nav3d()) {
+      document.body.classList.remove('nav-3d');
+      A().mapa.getContainer().style.removeProperty('--giro');
+      setTimeout(() => A().mapa.invalidateSize(), 0);
+    }
     document.body.classList.remove('navegando');
     const el = $('#gpsNav');
     if (el) el.hidden = true;
@@ -1857,6 +2016,9 @@
       if (st.origen) calcular();
       else usarMiUbicacion();
     },
+    // Buscador de direcciones (lo usan otras secciones, como los talleres)
+    buscarLugares: (t, signal) => buscarLugares(t, signal),
+    conectarCampo: (input, lista, alElegir) => conectarCampo(input, lista, alElegir),
     // Para pruebas
     _estado: st,
     _textoPaso: textoPaso,

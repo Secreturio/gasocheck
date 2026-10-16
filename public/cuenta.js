@@ -107,7 +107,7 @@
     const igual = (a, b) => JSON.stringify(a) === JSON.stringify(b);
     const out = {};
     for (const k of new Set([...Object.keys(local), ...Object.keys(remoto)])) {
-      if (k === 'coches' || k === 'mantenimientos') {
+      if (k === 'coches' || k === 'mantenimientos' || k === 'talleres') {
         out[k] = combinarLista(base?.[k], local[k] || [], remoto[k] || [], (x) => x.id);
         continue;
       }
