@@ -70,11 +70,16 @@
 
   /** Guarda una foto. Devuelve { enCuenta }.
       directo: la imagen ya viene reducida (p. ej. del editor de fotos de perfil): no se vuelve a comprimir. */
-  async function guardar(id, fichero, { directo = false } = {}) {
+  async function guardar(id, fichero, { directo = false, fondo = false } = {}) {
     const blob = directo ? fichero : await comprimir(fichero);
     await local.guardar(id, blob);
     if (urls.has(id)) URL.revokeObjectURL(urls.get(id));
     urls.set(id, URL.createObjectURL(blob));
+    // fondo: vuelve en cuanto está guardada en el dispositivo; la subida a la cuenta sigue sola
+    if (fondo) {
+      const subida = subir(id, blob).catch((e) => (console.warn(e.message), false));
+      return { enCuenta: null, subida };
+    }
     let enCuenta = false;
     try {
       enCuenta = await subir(id, blob);

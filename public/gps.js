@@ -430,6 +430,7 @@
           <ul class="sugerencias gps-sug" id="gSugL" role="listbox" hidden></ul>
         </div>
         <p class="texto-ayuda" id="gLugarElegido"></p>
+        <button type="button" class="enlace gps-lugar-mapa" id="gLugarMapa">🗺️ Ajustar el punto exacto en el mapa</button>
         <div class="gps-lugar-acc">
           <button type="button" class="boton primario" id="gLugarGuardar" disabled>Guardar</button>
           <button type="button" class="boton" id="gLugarCancelar">Cancelar</button>
@@ -517,10 +518,13 @@
     // Editor de lugares guardados
     conectarCampo($('#gLugarDir'), $('#gSugL'), (l) => {
       if (!st.edLugar) return;
-      st.edLugar.elegido = { nombre: l.detalle ? `${l.nombre}, ${l.detalle}` : l.nombre, lat: l.lat, lng: l.lng };
+      st.edLugar.elegido = { nombre: l.aprox ? l.nombre : l.detalle ? `${l.nombre}, ${l.detalle}` : l.nombre, lat: l.lat, lng: l.lng };
       $('#gLugarDir').value = st.edLugar.elegido.nombre;
       pintarElegido();
+      // Número aproximado: se abre el mapa para dejarlo exacto
+      if (l.aprox) ajustarLugarEnMapa();
     });
+    $('#gLugarMapa').addEventListener('click', ajustarLugarEnMapa);
     $('#gLugarDir').addEventListener('input', () => {
       if (st.edLugar) {
         st.edLugar.elegido = null;
@@ -596,6 +600,7 @@
   function usarMiUbicacion(forzar = false) {
     const app = A();
     const poner = (lat, lng) => {
+      A().comprobarPais?.(lat, lng);
       st.origen = { nombre: 'Mi ubicación', lat, lng, yo: true };
       pintarCampos();
       if (st.destino) calcular();
@@ -615,38 +620,94 @@
   }
 
   /* ---------- Buscador de direcciones ---------- */
+  // Busca direcciones: municipios conocidos al instante, Photon (OpenStreetMap) y, si escribes un número
+  // de portal que Photon no tiene, Nominatim (que interpola los números entre los portales conocidos).
+  // Si aun así no aparece, se ofrece la calle con tu número para colocarlo exacto en el mapa.
+  const NOMINATIM = (window.GASOCHECK_NOMINATIM || 'https://nominatim.openstreetmap.org').replace(/\/$/, '');
+  let ultimaNominatim = 0;
+  const cacheNominatim = new Map();
+  const paisesBusqueda = () => (A().paisesActivos?.() || ['es']).join(',');
+  async function buscarNominatim(texto, signal) {
+    const k = texto.toLowerCase().trim();
+    if (cacheNominatim.has(k)) return cacheNominatim.get(k);
+    // Su norma de uso: como mucho una petición por segundo
+    const espera = ultimaNominatim + 1100 - Date.now();
+    if (espera > 0) await new Promise((ok) => setTimeout(ok, espera));
+    if (signal?.aborted) throw new DOMException('cancelada', 'AbortError');
+    ultimaNominatim = Date.now();
+    const r = await fetch(`${NOMINATIM}/search?format=jsonv2&addressdetails=1&limit=6&accept-language=es&countrycodes=${paisesBusqueda()}&q=${encodeURIComponent(texto)}`, { signal });
+    const d = r.ok ? await r.json() : [];
+    const out = (Array.isArray(d) ? d : []).map((x) => {
+      const a = x.address || {};
+      const calle = a.road || a.pedestrian || a.footway || a.path || '';
+      const ciudad = a.city || a.town || a.village || a.municipality || a.hamlet || '';
+      const nombre = calle ? [calle, a.house_number].filter(Boolean).join(' ') : x.name || (x.display_name || '').split(',')[0];
+      return { nombre, detalle: [a.postcode, ciudad, a.state || a.province].filter(Boolean).join(', '), lat: Number(x.lat), lng: Number(x.lon), numero: Boolean(a.house_number) };
+    }).filter((x) => x.nombre && Number.isFinite(x.lat));
+    cacheNominatim.set(k, out);
+    return out;
+  }
+
   async function buscarLugares(texto, signal) {
     const app = A();
     const t = app.norm(texto).trim();
     const out = [];
     if (/^mi ubic/.test(t) || t === 'aqui') out.push({ nombre: 'Mi ubicación', detalle: 'Usar tu posición actual', yo: true });
+    // ¿Has escrito un número de portal? (no un código postal de 5 cifras)
+    const numero = (texto.match(/(?:^|[\s,ºª.])(\d{1,4}\s?[a-zA-Z]?)(?=$|[\s,])/) || [])[1]?.replace(/\s/g, '') || null;
     // Municipios conocidos (instantáneo, sin conexión)
-    const loc = app.estado.lugares
+    const loc = numero ? [] : app.estado.lugares
       .filter((l) => l.tipo === 'municipio' && l._n.startsWith(t))
       .sort((a, b) => b.n - a.n)
       .slice(0, 3)
       .map((l) => ({ nombre: l.nombre, detalle: l.extra || 'Municipio', lat: (l.nn + l.s) / 2, lng: (l.w + l.ee) / 2 }));
     out.push(...loc);
+    const yaEsta = (lat, lng) => out.some((o) => o.lat && Math.abs(o.lat - lat) < 0.0004 && Math.abs(o.lng - lng) < 0.0004);
+    let calleSinNumero = null;
     if (t.length >= 3) {
       try {
         const yo = app.estado.yo || (() => {
           const c = app.mapa.getCenter();
           return { lat: c.lat, lng: c.lng };
         })();
-        const r = await fetch(`${GEOCODER}/api/?q=${encodeURIComponent(texto)}&limit=7&bbox=${BBOX_ESPANA}&lat=${yo.lat.toFixed(4)}&lon=${yo.lng.toFixed(4)}`, { signal });
+        const r = await fetch(`${GEOCODER}/api/?q=${encodeURIComponent(texto)}&limit=8&lang=default&lat=${yo.lat.toFixed(4)}&lon=${yo.lng.toFixed(4)}`, { signal });
         const d = await r.json();
+        const permitidos = new Set(paisesBusqueda().split(',').map((x) => x.toUpperCase()));
         for (const f of d.features || []) {
           const p = f.properties || {};
+          if (p.countrycode && !permitidos.has(p.countrycode.toUpperCase())) continue;
           const calle = [p.street, p.housenumber].filter(Boolean).join(' ');
           const nombre = p.name || calle || p.city;
           if (!nombre) continue;
           const detalle = [p.name && calle ? calle : '', p.postcode, p.city || p.town || p.village, p.state].filter((x, i, a) => x && x !== nombre && a.indexOf(x) === i).join(', ');
           const [lng, lat] = f.geometry.coordinates;
-          if (out.some((o) => o.lat && Math.abs(o.lat - lat) < 0.002 && Math.abs(o.lng - lng) < 0.002)) continue;
-          out.push({ nombre, detalle, lat, lng });
+          if (yaEsta(lat, lng)) continue;
+          // Las direcciones con el número que buscas, primero
+          const conNumero = Boolean(numero && p.housenumber && p.housenumber.toLowerCase() === numero.toLowerCase());
+          if (!calleSinNumero && numero && p.osm_key === 'highway') calleSinNumero = { nombre: p.name, ciudad: [p.postcode, p.city || p.town || p.village].filter(Boolean).join(' '), lat, lng };
+          (conNumero ? out.splice(loc.length, 0, { nombre, detalle, lat, lng }) : out.push({ nombre, detalle, lat, lng }));
         }
       } catch (e) {
         if (e.name === 'AbortError') throw e;
+      }
+      // Con número de portal y sin resultado exacto: se pregunta a Nominatim
+      const hayExacto = numero && out.some((o) => new RegExp(`\\b${numero}\\b`, 'i').test(o.nombre));
+      if (numero && !hayExacto) {
+        try {
+          const n = await buscarNominatim(texto, signal);
+          // (aunque esté cerca de la calle sin número que ya salió: es justo lo que buscabas)
+          for (const x of n.filter((x) => x.numero).reverse()) if (!out.some((o) => o.nombre === x.nombre && o.lat && Math.abs(o.lat - x.lat) < 0.0004)) out.splice(loc.length, 0, x);
+          if (!calleSinNumero) {
+            const c = n.find((x) => !x.numero);
+            if (c) calleSinNumero = { nombre: c.nombre, ciudad: c.detalle, lat: c.lat, lng: c.lng };
+          }
+        } catch (e) {
+          if (e.name === 'AbortError') throw e;
+        }
+        // Último recurso: la calle con tu número, para afinar el punto en el mapa
+        if (!out.some((o) => new RegExp(`\\b${numero}\\b`, 'i').test(o.nombre)) && calleSinNumero?.nombre) {
+          out.push({ nombre: `${calleSinNumero.nombre} ${numero}`, detalle: `${calleSinNumero.ciudad ? calleSinNumero.ciudad + ' · ' : ''}número aproximado: puedes ajustarlo en el mapa`, lat: calleSinNumero.lat, lng: calleSinNumero.lng, aprox: true });
+        }
       }
     }
     return out.slice(0, 8);
@@ -674,7 +735,7 @@
       }
       input.value = l.nombre;
       elegidoTxt = null;
-      alElegir({ nombre: l.nombre, lat: l.lat, lng: l.lng, detalle: l.detalle || '' });
+      alElegir({ nombre: l.nombre, lat: l.lat, lng: l.lng, detalle: l.detalle || '', aprox: Boolean(l.aprox) });
       elegidoTxt = input.value;
     };
     const pintar = () => {
@@ -1060,9 +1121,22 @@
     (fijo || actual ? $('#gLugarDir') : $('#gLugarNombre')).focus();
     ed.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   }
+  // Mover el sitio (o colocarlo por primera vez) arrastrando el mapa bajo el pin
+  async function ajustarLugarEnMapa() {
+    if (!st.edLugar || !window.GasoMapa) return;
+    const e = st.edLugar.elegido;
+    const p = await window.GasoMapa.elegirPunto({ lat: e?.lat, lng: e?.lng, titulo: 'Coloca el pin en el sitio exacto' });
+    if (!p || !st.edLugar) return;
+    // La dirección del punto elegido (si no se encuentra, se conserva la que había)
+    const sinDir = /^-?\d+\.\d+, -?\d+\.\d+$/.test(p.dir);
+    const nombre = !sinDir ? p.dir : e?.nombre || p.dir;
+    st.edLugar.elegido = { nombre, lat: p.lat, lng: p.lng, exacto: true };
+    $('#gLugarDir').value = nombre;
+    pintarElegido();
+  }
   function pintarElegido() {
     const e = st.edLugar?.elegido;
-    $('#gLugarElegido').textContent = e ? `✔ ${e.nombre}` : 'Escribe la dirección y elige una de las sugerencias.';
+    $('#gLugarElegido').textContent = e ? `✔ ${e.nombre}${e.exacto ? ' · punto ajustado en el mapa' : ''}` : 'Escribe la dirección y elige una de las sugerencias, o colócala en el mapa.';
     $('#gLugarElegido').classList.toggle('ok', Boolean(e));
     $('#gLugarGuardar').disabled = !e;
   }

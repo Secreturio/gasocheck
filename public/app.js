@@ -515,51 +515,110 @@
     })
   );
 
-  /* ---------- Carga de datos ---------- */
+  /* ---------- Países: gasolineras de tu país elegido y del país en el que estás ---------- */
+  const PAISES_UE = {
+    de: 'Alemania', at: 'Austria', be: 'Bélgica', bg: 'Bulgaria', cy: 'Chipre', hr: 'Croacia', dk: 'Dinamarca', sk: 'Eslovaquia',
+    si: 'Eslovenia', es: 'España', ee: 'Estonia', fi: 'Finlandia', fr: 'Francia', gr: 'Grecia', hu: 'Hungría', ie: 'Irlanda',
+    it: 'Italia', lv: 'Letonia', lt: 'Lituania', lu: 'Luxemburgo', mt: 'Malta', nl: 'Países Bajos', pl: 'Polonia', pt: 'Portugal',
+    cz: 'República Checa', ro: 'Rumanía', se: 'Suecia',
+  };
+  const BANDERA = (c) => String.fromCodePoint(...[...c.toUpperCase()].map((l) => 127397 + l.charCodeAt(0)));
+  const CENTRO_PAIS = { es: [40.2, -3.7, 6], fr: [46.6, 2.4, 6], it: [42.5, 12.5, 6], pt: [39.6, -8.0, 7], de: [51.1, 10.4, 6], at: [47.6, 14.1, 7] };
+  let paisesDisponibles = { es: { disponible: true, fuente: 'Ministerio para la Transición Ecológica' } };
+  const paisElegido = () => {
+    const p = estado.ajustes.paisGasolineras || 'es';
+    return paisesDisponibles[p]?.disponible ? p : 'es';
+  };
+  const paisDetectado = () => leer('gm.paisDetectado', null);
+  // Los del país que elegiste y, si estás en otro país con datos, también los de ese
+  function paisesActivos() {
+    const out = [paisElegido()];
+    const d = paisDetectado();
+    if (d && d !== out[0] && paisesDisponibles[d]?.disponible) out.push(d);
+    return out;
+  }
+  const datosPais = new Map(); // código → { fecha, fuente, estaciones, demo, desactualizado }
+
+  // Reconstruye índices, buscador de lugares y marcas con todas las gasolineras cargadas
+  function reconstruirEstaciones() {
+    const activos = new Set(paisesActivos());
+    const todas = [];
+    for (const [pais, d] of datosPais) if (activos.has(pais)) todas.push(...d.estaciones);
+    estado.estaciones = todas;
+    estado.porId.clear();
+    const lugares = new Map();
+    const marcas = new Map();
+    for (const e of todas) {
+      e._txt ||= norm(`${e.rotulo} ${e.direccion} ${e.localidad} ${e.municipio} ${e.provincia} ${e.cp}`);
+      estado.porId.set(e.id, e);
+      marcas.set(e.rotulo, (marcas.get(e.rotulo) || 0) + 1);
+      for (const [tipo, nombre, extra] of [
+        ['municipio', e.municipio || e.localidad, e.provincia],
+        ['provincia', e.provincia, 'Provincia'],
+      ]) {
+        if (!nombre) continue;
+        const k = tipo + '|' + nombre + '|' + extra;
+        let l = lugares.get(k);
+        if (!l) lugares.set(k, (l = { tipo, nombre, extra, n: 0, s: -90, w: 180, nn: 90, ee: -180, _n: norm(nombre) }));
+        l.n++;
+        l.nn = Math.min(l.nn, e.lat);
+        l.s = Math.max(l.s, e.lat);
+        l.w = Math.min(l.w, e.lng);
+        l.ee = Math.max(l.ee, e.lng);
+      }
+    }
+    estado.lugares = [...lugares.values()];
+    // Marcas con más gasolineras, en orden alfabético
+    const top = [...marcas].sort((a, b) => b[1] - a[1]).slice(0, 40).sort((a, b) => a[0].localeCompare(b[0], 'es'));
+    $('#fMarca').innerHTML = '<option value="">Todas</option>' + top.map(([m, n]) => `<option value="${esc(m)}">${esc(m)} (${n})</option>`).join('');
+    $('#fMarca').value = estado.marca;
+    // Fuente de los precios
+    const es = datosPais.get('es');
+    const partes = [...activos].filter((c) => datosPais.has(c)).map((c) => {
+      const d = datosPais.get(c);
+      if (c === 'es') return d.demo ? 'Datos de DEMOSTRACIÓN (no reales)' : `Precios oficiales · ${d.fecha}${d.desactualizado ? ' · sin conexión con el Ministerio' : ''}`;
+      return `${BANDERA(c)} ${PAISES_UE[c]}: ${d.fuente}${d.fecha ? ' · ' + d.fecha : ''}`;
+    });
+    estado.fechaDatos = es?.fecha || datosPais.get(paisElegido())?.fecha || '';
+    $('#fuente').textContent = partes.join(' · ') || 'Sin datos';
+  }
+
+  async function cargarPais(pais) {
+    const d = await api(pais === 'es' ? '/api/estaciones' : `/api/estaciones?pais=${pais}`);
+    for (const e of d.estaciones) {
+      e.pais = pais;
+      if (pais !== 'es') {
+        e.horario ??= '';
+        e.venta ??= 'publico';
+        e.direccion ??= '';
+        e.localidad ??= '';
+        e.municipio ??= e.localidad;
+        e.provincia ??= '';
+        e.cp ??= '';
+      }
+    }
+    datosPais.set(pais, d);
+    return d;
+  }
+
   async function cargar() {
     try {
-      const [datos, cal, vari, ext] = await Promise.all([
-        api('/api/estaciones'),
+      const [, cal, vari, ext, lista] = await Promise.all([
+        Promise.resolve(),
         api('/api/calidad').catch(() => ({ calidad: {} })),
         api('/api/variaciones').catch(() => ({ variaciones: {} })),
         api('/api/extras').catch(() => ({ extras: {} })),
+        api('/api/paises').catch(() => null),
       ]);
+      if (lista?.paises) paisesDisponibles = lista.paises;
       estado.extras = ext.extras || {};
       estado.calidad = cal.calidad || {};
       estado.variaciones = vari.variaciones || {};
-      estado.estaciones = datos.estaciones;
-      estado.porId.clear();
-
-      const lugares = new Map();
-      const marcas = new Map();
-      for (const e of datos.estaciones) {
-        e._txt = norm(`${e.rotulo} ${e.direccion} ${e.localidad} ${e.municipio} ${e.provincia} ${e.cp}`);
-        estado.porId.set(e.id, e);
-        marcas.set(e.rotulo, (marcas.get(e.rotulo) || 0) + 1);
-        for (const [tipo, nombre, extra] of [
-          ['municipio', e.municipio, e.provincia],
-          ['provincia', e.provincia, 'Provincia'],
-        ]) {
-          const k = tipo + '|' + nombre + '|' + extra;
-          let l = lugares.get(k);
-          if (!l) lugares.set(k, (l = { tipo, nombre, extra, n: 0, s: -90, w: 180, nn: 90, ee: -180, _n: norm(nombre) }));
-          l.n++;
-          l.nn = Math.min(l.nn, e.lat);
-          l.s = Math.max(l.s, e.lat);
-          l.w = Math.min(l.w, e.lng);
-          l.ee = Math.max(l.ee, e.lng);
-        }
-      }
-      estado.lugares = [...lugares.values()];
-
-      // Marcas con más gasolineras, en orden alfabético
-      const top = [...marcas].sort((a, b) => b[1] - a[1]).slice(0, 40).sort((a, b) => a[0].localeCompare(b[0], 'es'));
-      $('#fMarca').innerHTML = '<option value="">Todas</option>' + top.map(([m, n]) => `<option value="${esc(m)}">${esc(m)} (${n})</option>`).join('');
-      $('#fMarca').value = estado.marca;
-
-      estado.fechaDatos = datos.fecha || '';
-      const fecha = datos.demo ? 'Datos de DEMOSTRACIÓN (no reales)' : `Precios oficiales · ${datos.fecha}`;
-      $('#fuente').textContent = datos.desactualizado ? `${fecha} · sin conexión con el Ministerio` : fecha;
+      const res = await Promise.allSettled(paisesActivos().map((p) => (datosPais.has(p) ? datosPais.get(p) : cargarPais(p))));
+      const fallos = res.map((r, i) => [r, paisesActivos()[i]]).filter(([r]) => r.status === 'rejected');
+      if (fallos.length === res.length) throw fallos[0][0].reason;
+      if (fallos.length) avisar(`No se pudieron cargar las gasolineras de ${fallos.map(([, p]) => PAISES_UE[p]).join(', ')}. Se reintentará más tarde.`, 5000);
+      reconstruirEstaciones();
       refrescar();
       abrirDesdeHash();
       pintarConsejo();
@@ -569,6 +628,84 @@
       $('#lista').innerHTML = `<li class="vacio">No se pudieron cargar los precios. ${esc(err.message)}<br><br><button class="boton" id="reintentar" type="button">Reintentar</button></li>`;
       $('#reintentar')?.addEventListener('click', cargar);
     }
+  }
+
+  // ¿En qué país estás? (con tu ubicación). Si es otro con datos, se añaden sus gasolineras.
+  async function comprobarPais(lat, lng) {
+    const celda = `${lat.toFixed(1)},${lng.toFixed(1)}`;
+    let pais = null;
+    try {
+      const cache = JSON.parse(sessionStorage.getItem('gm.paisCelda') || '{}');
+      if (cache.celda === celda) pais = cache.pais;
+    } catch { /* */ }
+    if (!pais) {
+      try {
+        const r = await fetch(`${(window.GASOCHECK_GEOCODER || 'https://photon.komoot.io').replace(/\/$/, '')}/reverse?lat=${lat.toFixed(4)}&lon=${lng.toFixed(4)}&lang=default`, { signal: AbortSignal.timeout(8000) });
+        const d = await r.json();
+        pais = (d.features?.[0]?.properties?.countrycode || '').toLowerCase() || null;
+        try { sessionStorage.setItem('gm.paisCelda', JSON.stringify({ celda, pais })); } catch { /* */ }
+      } catch {
+        return;
+      }
+    }
+    if (!pais || pais === paisDetectado()) return;
+    guardarLocal('gm.paisDetectado', pais);
+    if (!PAISES_UE[pais]) return;
+    if (!paisesDisponibles[pais]?.disponible) {
+      if (pais !== paisElegido()) avisar(`Estás en ${PAISES_UE[pais]}, pero ese país no publica los precios de sus gasolineras en abierto.`, 5000);
+      return;
+    }
+    if (paisesActivos().includes(pais) && !datosPais.has(pais)) {
+      avisar(`Estás en ${PAISES_UE[pais]}: cargando también sus gasolineras…`, 4000);
+      try {
+        await cargarPais(pais);
+        reconstruirEstaciones();
+        refrescar();
+      } catch {
+        avisar(`No se pudieron cargar las gasolineras de ${PAISES_UE[pais]}.`);
+      }
+    } else if (estado.estaciones.length) {
+      reconstruirEstaciones();
+      refrescar();
+    }
+  }
+
+  // Ajuste: país de las gasolineras
+  function abrirElegirPais() {
+    const actual = paisElegido();
+    const d = paisDetectado();
+    const fila = ([c, n]) => {
+      const info = paisesDisponibles[c];
+      const ok = Boolean(info?.disponible);
+      return `<li><label class="pais-op${ok ? '' : ' no'}"><input type="radio" name="paisG" value="${c}" ${c === actual ? 'checked' : ''} ${ok ? '' : 'disabled'}>
+        <span class="pais-band">${BANDERA(c)}</span><span class="pais-txt"><b>${n}${c === d ? ' · estás aquí' : ''}</b><small>${ok ? esc(info.fuente || 'Datos oficiales') : esc(info?.motivo || 'No publica los precios de sus gasolineras en abierto')}</small></span></label></li>`;
+    };
+    const ordenados = Object.entries(PAISES_UE).sort((a, b) => a[1].localeCompare(b[1], 'es'));
+    const con = ordenados.filter(([c]) => paisesDisponibles[c]?.disponible);
+    const sin = ordenados.filter(([c]) => !paisesDisponibles[c]?.disponible);
+    const filas = con.map(fila).join('') + (sin.length ? `</ul><details class="pais-sin"><summary>Sin datos públicos (${sin.length} países)</summary><ul class="pais-lista">${sin.map(fila).join('')}</ul></details><ul class="pais-lista" hidden>` : '');
+    const capa = hojaModal(`
+      <div class="hoja-cab"><h3>País de las gasolineras</h3><button type="button" class="hoja-x" aria-label="Cerrar">✕</button></div>
+      <p class="texto-ayuda">Verás las gasolineras del país que elijas. Si viajas y tu ubicación indica que estás en otro país con datos, también verás las de ese país.</p>
+      <ul class="pais-lista">${filas}</ul>
+      <div class="er-botones"><button type="button" class="boton primario" id="paisGuardar">Guardar</button><button type="button" class="boton" id="paisCancelar">Cancelar</button></div>`, 'hoja-paises');
+    $('.hoja-x', capa).addEventListener('click', capa.cerrar);
+    $('#paisCancelar', capa).addEventListener('click', capa.cerrar);
+    $('#paisGuardar', capa).addEventListener('click', async () => {
+      const v = $('input[name="paisG"]:checked', capa)?.value || 'es';
+      capa.cerrar();
+      if (v === actual) return;
+      estado.ajustes.paisGasolineras = v;
+      guardarLocal('gm.ajustes', estado.ajustes);
+      pintarBotonPais();
+      avisar(`Cargando las gasolineras de ${PAISES_UE[v]}…`, 4000);
+      await cargar();
+      if (!estado.yo && CENTRO_PAIS[v]) mapa.setView(CENTRO_PAIS[v].slice(0, 2), CENTRO_PAIS[v][2]);
+    });
+  }
+  function pintarBotonPais() {
+    const b = $('[data-menu="pais"]', menuCuenta);
+    if (b) b.innerHTML = `🌍 País de las gasolineras: <b>${BANDERA(paisElegido())} ${PAISES_UE[paisElegido()]}</b>`;
   }
 
   /* ---------- Buscador ---------- */
@@ -822,6 +959,7 @@
   function abrirMenuCuenta() {
     $('[data-menu="avisos"]', menuCuenta).hidden = !Cuenta.usuario();
     $('[data-menu="cuenta"]', menuCuenta).textContent = Cuenta.usuario() ? 'Mi cuenta' : 'Entrar o crear cuenta';
+    pintarBotonPais();
     menuCuenta.hidden = false;
     $('#bCuenta').setAttribute('aria-expanded', 'true');
     $('button, a', menuCuenta).focus();
@@ -833,6 +971,7 @@
     if (b.dataset.menu === 'cuenta') Cuenta.abrir();
     if (b.dataset.menu === 'estadisticas') cambiarPestana('estadisticas');
     if (b.dataset.menu === 'avisos') window.GasoAvisos?.abrir();
+    if (b.dataset.menu === 'pais') abrirElegirPais();
   });
   document.addEventListener('click', (ev) => {
     if (!menuCuenta.hidden && !ev.target.closest('.cuenta-sup')) cerrarMenuCuenta();
@@ -937,7 +1076,8 @@
     const c = estado.combustible;
     const token = ++tokenEst;
     const provSel = el.querySelector('#ambitoTend')?.value ?? estado.lugar?.provincia ?? '';
-    const publicas = estado.estaciones.filter((e) => e.venta === 'publico' && e.precios[c] != null);
+    // Las estadísticas, del país que tienes elegido
+    const publicas = estado.estaciones.filter((e) => e.venta === 'publico' && e.precios[c] != null && (e.pais || 'es') === paisElegido());
 
     // Provincias por precio medio
     const porProv = new Map();
@@ -1057,6 +1197,7 @@
       (pos) => {
         estado.yo = { lat: pos.coords.latitude, lng: pos.coords.longitude };
         setTimeout(pintarConsejo, 0);
+        comprobarPais(estado.yo.lat, estado.yo.lng);
         if (marcadorYo) marcadorYo.remove();
         marcadorYo = L.marker([estado.yo.lat, estado.yo.lng], {
           icon: L.divIcon({ className: '', html: '<div class="yo"></div>', iconSize: [16, 16], iconAnchor: [8, 8] }),
@@ -2282,7 +2423,16 @@
 
   // Con varios coches: pulsando la foto de uno se ven solo sus repostajes; sin elegir ninguno, los de todos
   let filtroCocheRepos = null;
+  // Se vuelve a pintar sin que la página salte: se conserva dónde estabas
   function pintarRepostajes(abrirFormulario = false) {
+    const cont = $('#panel');
+    const antes = { panel: cont?.scrollTop || 0, ventana: window.scrollY };
+    const r = pintarRepostajesYa(abrirFormulario);
+    if (cont) cont.scrollTop = antes.panel;
+    if (window.scrollY !== antes.ventana) window.scrollTo(0, antes.ventana);
+    return r;
+  }
+  function pintarRepostajesYa(abrirFormulario = false) {
     const el = $('#vRepostajes');
     if (!el) return;
     if (!conSesion()) {
@@ -2853,9 +3003,10 @@
       let msgFoto = '';
       if (fotoNueva) {
         try {
-          const r = await GasoFotos.guardar(idNuevo, fotoNueva);
+          // Se guarda en el móvil y se sube a la cuenta en segundo plano: el repostaje aparece al momento
+          const r = await GasoFotos.guardar(idNuevo, fotoNueva, { fondo: true });
           entrada.foto = idNuevo;
-          if (window.Cuenta?.usuario() && !r.enCuenta) msgFoto = ' (la foto se ha guardado solo en este dispositivo)';
+          r.subida?.then((ok) => window.Cuenta?.usuario() && !ok && avisar('La foto del ticket se guardó solo en este dispositivo (no se pudo subir a tu cuenta).', 4500));
         } catch {
           msgFoto = ' (no se pudo guardar la foto)';
         }
@@ -2961,18 +3112,37 @@
       if (x?.foto) GasoFotos.ver(x.foto, `Ticket del ${new Date(x.fecha + 'T12:00:00').toLocaleDateString('es-ES')}`);
     }));
     // Añadir o cambiar la foto de un repostaje ya apuntado
+    // Foto del ticket de un repostaje ya apuntado: se guarda en el móvil al momento y se sube a tu cuenta
+    // en segundo plano, sin volver a pintar la página (así no da tirones)
     $$('[data-subir]', el).forEach((inp) => inp.addEventListener('change', async () => {
       const f = inp.files[0];
       const x = estado.diario.find((y) => y.id === inp.dataset.subir);
       if (!f || !x) return;
+      const li = inp.closest('.rp-item');
+      const etq = $(`label[for="${CSS.escape(inp.id)}"]`, li);
+      li?.classList.add('subiendo');
+      if (etq) etq.innerHTML = `<span class="rp-spin" aria-hidden="true"></span><span><span class="largo">Guardando foto…</span><span class="corto">Guardando…</span></span>`;
       try {
-        const r = await GasoFotos.guardar(x.id, f);
+        const r = await GasoFotos.guardar(x.id, f, { fondo: true });
         x.foto = x.id;
         guardarLocal('gm.diario', estado.diario);
-        pintarRepostajes();
-        avisar(window.Cuenta?.usuario() && !r.enCuenta ? 'Foto guardada en este dispositivo (no se pudo subir a tu cuenta)' : 'Foto del ticket guardada');
+        // Solo cambia esa tarjeta: «Ver ticket» y «Cambiar foto»
+        if (li && etq) {
+          etq.insertAdjacentHTML('beforebegin', `<button type="button" class="rp-btn" data-foto="${esc(x.id)}">${ICO.ticket}<span><span class="largo">Ver ticket</span><span class="corto">Ticket</span></span></button>`);
+          etq.previousElementSibling.addEventListener('click', () => GasoFotos.ver(x.foto, `Ticket del ${new Date(x.fecha + 'T12:00:00').toLocaleDateString('es-ES')}`));
+          etq.innerHTML = `${ICO.camara}<span><span class="largo">Cambiar foto</span><span class="corto">Foto</span></span>`;
+        }
+        li?.classList.remove('subiendo');
+        avisar('Foto del ticket guardada', 2500);
+        r.subida?.then((enCuenta) => {
+          if (window.Cuenta?.usuario() && !enCuenta) avisar('La foto se ha guardado en este dispositivo, pero no se pudo subir a tu cuenta. Se reintentará al volver a añadirla.', 4500);
+        });
       } catch {
+        li?.classList.remove('subiendo');
+        if (etq) etq.innerHTML = `${ICO.camara}<span><span class="largo">Añadir foto del ticket</span><span class="corto">+ Ticket</span></span>`;
         avisar('No se pudo guardar la foto.');
+      } finally {
+        inp.value = '';
       }
     }));
   }
@@ -3119,7 +3289,8 @@
         setTimeout(() => mapa.invalidateSize(), 0);
       }
     },
-    mapa, estado, precio, base, abrirFicha, avisar, hoja, NOMBRES, norm, euros, esc, distanciaKm,
+    mapa, estado, precio, base, abrirFicha, avisar, hoja, NOMBRES, norm, euros, esc, distanciaKm, paisesActivos: () => paisesActivos(),
+    comprobarPais: (lat, lng) => comprobarPais(lat, lng),
     // Muestra u oculta las gasolineras del mapa (el GPS solo enseña las de la ruta)
     capaEstaciones(visible) {
       if (visible && !mapa.hasLayer(grupo)) mapa.addLayer(grupo);

@@ -5,6 +5,7 @@
 
 import crypto from 'node:crypto';
 import { crearEstaciones } from './estaciones.js';
+import { crearPaises } from './paises.js';
 import { crearAlmacenReportes, PROBLEMAS } from './reportes.js';
 import { crearHistorico, sembrarDemo, hoyMadrid } from './historico.js';
 import { crearCuentas, VERSION_CONDICIONES, esPro } from './cuentas.js';
@@ -80,6 +81,7 @@ export async function crearApp({ almacen, demo = false, appUrl = '' }) {
   const cuentas = crearCuentas(db, { correo, appUrl: APP_URL });
   const proveedores = crearProveedores(db, reputacion);
   const estaciones = crearEstaciones(almacen, { demo });
+  const paises = crearPaises(almacen, { demo });
   // Las claves de notificaciones se leen (o se crean) la primera vez que hacen falta
   let pushListo = null;
   const obtenerPush = () => (pushListo ||= crearWebPush(almacen, { sujeto: process.env.PUSH_CONTACTO || 'mailto:gasocheck2026@gmail.com' }).catch((e) => {
@@ -189,6 +191,7 @@ export async function crearApp({ almacen, demo = false, appUrl = '' }) {
   }
 
   let estacionesTxt = { ref: null, txt: '' };
+  const estacionesPais = new Map();
 
   /* ---------------- Rutas ----------------
      Cada ruta: [método, patrón, opciones, manejador(c)]
@@ -196,7 +199,24 @@ export async function crearApp({ almacen, demo = false, appUrl = '' }) {
                  bd: false (no usa la base de datos), opcional: true (escritura que se puede perder) } */
   const RUTAS = [
     // ---- Precios ----
+    // Países con datos de gasolineras (España y los de la UE que publican sus precios en abierto)
+    ['GET', '/api/paises', { bd: false, cdn: 3600 }, () => ({ paises: paises.listado() })],
     ['GET', '/api/estaciones', { bd: false }, async (c) => {
+      const pais = (c.url.searchParams.get('pais') || 'es').toLowerCase();
+      if (pais !== 'es') {
+        if (!/^[a-z]{2}$/.test(pais)) return error(400, 'País no válido.');
+        let d;
+        try {
+          d = await paises.obtener(pais);
+        } catch (err) {
+          return error(err.status || 502, err.status ? err.message : 'No se pudieron cargar las gasolineras de ese país. Inténtalo más tarde.');
+        }
+        if (estacionesPais.get(pais)?.ref !== d) estacionesPais.set(pais, { ref: d, txt: JSON.stringify(d) });
+        return new Response(estacionesPais.get(pais).txt, {
+          status: 200,
+          headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'public, max-age=900', 'Netlify-CDN-Cache-Control': 'public, s-maxage=900, stale-while-revalidate=3600', Vary: 'Accept-Encoding', ...CORS, ...SEGURIDAD },
+        });
+      }
       let datos;
       try {
         datos = await estaciones.obtener();
@@ -715,6 +735,9 @@ export async function crearApp({ almacen, demo = false, appUrl = '' }) {
       })
     );
     if (!demo) await copiaDiaria().catch((e) => console.error('No se pudo hacer la copia de seguridad:', e.message));
+    // Gasolineras de otros países que alguien ha consultado: se renuevan con el tiempo que quede
+    const quedan = tiempoMax - (Date.now() - t0) - 2_000;
+    if (quedan > 4_000) await paises.renovarPedidos({ tiempoMax: quedan }).catch((e) => console.error('Países:', e.message));
     await viajes.limpiar().catch(() => {});
     const resumen = { gasolineras: datos.estaciones.length, fecha: datos.fecha, diasHistorial: dias, avisos: enviados, ms: Date.now() - t0 };
     console.log('Actualización:', JSON.stringify(resumen));

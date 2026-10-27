@@ -144,7 +144,7 @@
           <label for="mtTNombre">Nombre del taller<input id="mtTNombre" maxlength="60" autocomplete="off" placeholder="Ej.: Talleres Pepe" value="${esc(actual?.nombre || '')}"></label>
           <label for="mtTDir">Dirección<input id="mtTDir" type="search" autocomplete="off" placeholder="Busca la calle o el nombre del taller" value="${esc(actual?.dir || '')}" aria-controls="mtTSug" aria-expanded="false"></label>
           <ul class="sugerencias gps-sug mt-sug" id="mtTSug" role="listbox" hidden></ul>
-          <div class="mt-taller-donde"><span id="mtTElegido" class="texto-ayuda">${e.elegido ? `✔ ${esc(e.elegido.dir)}` : 'Elige una de las sugerencias o usa tu ubicación si estás en el taller.'}</span><button type="button" class="enlace" id="mtTAqui">📍 Estoy en el taller</button></div>
+          <div class="mt-taller-donde"><span id="mtTElegido" class="texto-ayuda">${e.elegido ? `✔ ${esc(e.elegido.dir)}` : 'Elige una de las sugerencias o usa tu ubicación si estás en el taller.'}</span><span class="mt-taller-donde-btn"><button type="button" class="enlace" id="mtTMapa">🗺️ Elegir en el mapa</button><button type="button" class="enlace" id="mtTAqui">📍 Estoy en el taller</button></span></div>
           <label class="check"><input type="checkbox" id="mtTHab" ${!xs.length || actual?.id === hab ? 'checked' : ''}> Es mi taller habitual</label>
           <p class="error" id="mtTError" hidden></p>
           <div class="mt-taller-botones">
@@ -186,9 +186,21 @@
       $('#mtTElegido', el).textContent = e ? `✔ ${e.dir}` : 'Elige una de las sugerencias o usa tu ubicación si estás en el taller.';
       $('#mtTElegido', el).classList.toggle('ok', Boolean(e));
     };
+    const ajustarEnMapa = async () => {
+      if (!edTaller || !window.GasoMapa) return;
+      const e = edTaller.elegido;
+      const p = await window.GasoMapa.elegirPunto({ lat: e?.lat, lng: e?.lng, titulo: 'Coloca el pin en la puerta del taller' });
+      if (!p || !edTaller) return;
+      const sinDir = /^-?\d+\.\d+, -?\d+\.\d+$/.test(p.dir);
+      edTaller.elegido = { dir: !sinDir ? p.dir : e?.dir || p.dir, lat: p.lat, lng: p.lng };
+      $('#mtTDir', el).value = edTaller.elegido.dir;
+      pintarElegido();
+    };
+    $('#mtTMapa', el).addEventListener('click', ajustarEnMapa);
     window.GasoGPS?.conectarCampo($('#mtTDir', el), $('#mtTSug', el), (l) => {
       if (!edTaller) return;
-      edTaller.elegido = { dir: l.detalle ? `${l.nombre}, ${l.detalle}` : l.nombre, lat: l.lat, lng: l.lng };
+      edTaller.elegido = { dir: l.aprox ? l.nombre : l.detalle ? `${l.nombre}, ${l.detalle}` : l.nombre, lat: l.lat, lng: l.lng };
+      if (l.aprox) setTimeout(ajustarEnMapa, 50);
       $('#mtTDir', el).value = edTaller.elegido.dir;
       // Si buscaste el taller por su nombre, se aprovecha
       if (!$('#mtTNombre', el).value.trim() && l.detalle) $('#mtTNombre', el).value = l.nombre.slice(0, 60);

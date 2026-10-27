@@ -41,7 +41,7 @@
       ${
         d.ranking.length
           ? `<ol class="ranking">${d.ranking
-              .map((f) => `<li class="${f.soyYo ? 'yo' : ''}"><span class="puesto">${f.puesto <= 3 ? ['🥇', '🥈', '🥉'][f.puesto - 1] : f.puesto}</span><span class="alias">${esc(f.alias)}${f.verificado ? ' <span class="ok">✓</span>' : ''}</span><b>${f.puntos}</b></li>`)
+              .map((f) => `<li class="${f.soyYo ? 'soy-yo' : ''}"><span class="puesto">${f.puesto <= 3 ? ['🥇', '🥈', '🥉'][f.puesto - 1] : f.puesto}</span><span class="alias">${esc(f.alias)}${f.verificado ? ' <span class="ok">✓</span>' : ''}</span><b>${f.puntos}</b></li>`)
               .join('')}</ol>`
           : `<p class="texto-ayuda">Nadie ha sumado puntos este mes en ${esc(d.provincia)}. ¡Puedes ser el primero!</p>`
       }`;
